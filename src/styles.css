@@ -94,6 +94,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 button.ghost {
   background: transparent;
   border: 1px solid #3a3a6a;
@@ -156,6 +161,11 @@ button.danger {
   gap: 0.75rem;
 }
 
+.slot-list {
+  display: grid;
+  gap: 1rem;
+}
+
 .player,
 .league,
 .admin-player {
@@ -200,6 +210,45 @@ button.danger {
 
 .points {
   font-weight: 600;
+}
+
+.slot {
+  display: grid;
+  gap: 0.65rem;
+  background: #1b1b3a;
+  border-radius: 16px;
+  padding: 0.85rem 1rem;
+}
+
+.slot select {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #2b2b57;
+  padding: 0.6rem 0.8rem;
+  background: #0e0e1f;
+  color: #f8f7ff;
+}
+
+.slot select:disabled {
+  opacity: 0.7;
+}
+
+.transfer-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.notice {
+  color: #ffb3c7;
+  font-weight: 600;
+}
+
+.helper {
+  color: #b8b8e5;
+  font-size: 0.9rem;
 }
 
 .admin-grid {
