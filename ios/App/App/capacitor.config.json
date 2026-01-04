@@ -1,0 +1,17 @@
+{
+	"appId": "com.bbfg.app",
+	"appName": "Big Brother Fantasy Game",
+	"webDir": "dist",
+	"plugins": {
+		"PushNotifications": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"alert"
+			]
+		}
+	},
+	"packageClassList": [
+		"PushNotificationsPlugin"
+	]
+}
