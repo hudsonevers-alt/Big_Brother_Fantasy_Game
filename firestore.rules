@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == "hudsonevers@gmail.com";
+    }
+
+    function isLeagueMember(leagueId) {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/leagues/$(leagueId))
+          .data.memberIds.hasAny([request.auth.uid]);
+    }
+
+    match /season/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /players/{playerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /avatars/{avatarId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /leagues/{leagueId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.memberIds.hasAll([request.auth.uid]);
+      allow delete: if isAdmin()
+        || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+      allow update: if isAdmin()
+        || (isSignedIn() && resource.data.ownerId == request.auth.uid)
+        || (isSignedIn()
+          && request.resource.data.diff(resource.data).changedKeys()
+            .hasOnly(["memberIds", "updatedAt"])
+          && request.resource.data.memberIds.size()
+            == resource.data.memberIds.size() + 1
+          && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+          && request.resource.data.memberIds.hasAny([request.auth.uid])
+          && !resource.data.memberIds.hasAny([request.auth.uid]));
+    }
+
+    match /leagues/{leagueId}/messages/{messageId} {
+      allow read: if isLeagueMember(leagueId);
+      allow create: if isLeagueMember(leagueId)
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /globalMessages/{messageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow delete: if isAdmin();
+    }
+  }
+}
