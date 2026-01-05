@@ -32,6 +32,13 @@ This project is set up to ship to the App Store and Google Play using Capacitor.
   - Android: add `google-services.json` and set up FCM.
   - iOS: add `GoogleService-Info.plist`, enable push capabilities, and configure APNs.
 
+### Google sign-in (native)
+- Uses `@capacitor-firebase/authentication` for native Google sign-in.
+- iOS: add `GoogleService-Info.plist` and include the `REVERSED_CLIENT_ID` in
+  your app's URL Types (Info.plist).
+- Android: add `google-services.json` in `android/app`.
+- After adding platform configs, run `npx cap sync`.
+
 ### In-app purchases (future)
 - Plan to add a Capacitor in-app purchase plugin and server-side receipt validation
   before launching paid features.

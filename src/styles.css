@@ -26,10 +26,17 @@
   padding: 0;
 }
 
+html,
+body {
+  width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   min-height: 100vh;
   background: radial-gradient(circle at 15% 20%, #ffffff 0%, #eef8fd 45%, #d7effb 100%);
   color: var(--ink-1);
+  touch-action: pan-y;
 }
 
 .app-shell {
@@ -48,6 +55,7 @@ body {
   top: -140px;
   right: -120px;
   z-index: 0;
+  pointer-events: none;
 }
 
 .app-shell::after {
@@ -59,6 +67,7 @@ body {
   bottom: -220px;
   left: -200px;
   z-index: 0;
+  pointer-events: none;
 }
 
 .app {
@@ -882,10 +891,23 @@ h2 {
 .slot-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.1rem;
+  --slot-grid-gap: 1.1rem;
+  gap: var(--slot-grid-gap);
   margin-top: 1.2rem;
   position: relative;
   overflow: visible;
+}
+
+.slot-grid--hoh,
+.slot-grid--block {
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+}
+
+.slot-grid--hoh .slot-card:nth-child(3) {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: calc((100% - var(--slot-grid-gap)) / 2);
+  max-width: 100%;
 }
 
 .breakdown-overlay {
@@ -1745,7 +1767,87 @@ input[type="file"] {
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   }
 
+  .slot-grid--hoh,
+  .slot-grid--block {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+
   .tab-bar {
     gap: 0.4rem;
+  }
+}
+
+@media (max-width: 540px) {
+  .app {
+    padding: 1.75rem 1rem 1.25rem;
+    gap: 1.75rem;
+  }
+
+  .page-header {
+    gap: 1rem;
+  }
+
+  .team-group,
+  .admin-card,
+  .leaderboard-card,
+  .chat-card,
+  .modal {
+    border-radius: 20px;
+    padding: 1.1rem;
+  }
+
+  .slot-card {
+    padding: 0.9rem;
+  }
+
+  .slot-grid {
+    --slot-grid-gap: 0.9rem;
+    grid-template-columns: 1fr;
+  }
+
+  .slot-grid--hoh,
+  .slot-grid--block {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+
+  .slot-avatar {
+    width: 76px;
+    height: 76px;
+    font-size: 1.2rem;
+  }
+
+  .slot-avatar.preview {
+    width: 68px;
+    height: 68px;
+  }
+
+  .chat-thread {
+    height: clamp(240px, 45vh, 420px);
+  }
+
+  select,
+  input,
+  button {
+    min-height: 44px;
+  }
+
+  button.modal-close {
+    min-height: 36px;
+  }
+
+  button.avatar-button,
+  button.slot-avatar-button {
+    min-height: 0;
+  }
+
+  .tab-bar {
+    width: calc(100% - 1.5rem);
+    padding: 0.55rem;
+    border-radius: 16px;
+  }
+
+  .tab-button {
+    padding: 0.6rem 0.4rem;
+    font-size: 0.85rem;
   }
 }

@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import { Capacitor } from "@capacitor/core";
+import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithCredential,
+  signInWithPopup,
+  signOut
+} from "firebase/auth";
 import {
   addDoc,
   arrayRemove,
@@ -1616,6 +1624,19 @@ function App() {
   const handleGoogleSignIn = async () => {
     setAuthError("");
     try {
+      if (Capacitor.isNativePlatform()) {
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        const credentialData = result?.credential || {};
+        if (!credentialData.idToken && !credentialData.accessToken) {
+          throw new Error("Missing Google auth credential.");
+        }
+        const credential = GoogleAuthProvider.credential(
+          credentialData.idToken,
+          credentialData.accessToken
+        );
+        await signInWithCredential(auth, credential);
+        return;
+      }
       await signInWithPopup(auth, googleProvider);
     } catch (error) {
       setAuthError("Google sign-in failed. Please try again.");
@@ -1625,6 +1646,9 @@ function App() {
   const handleSignOut = async () => {
     setAuthError("");
     try {
+      if (Capacitor.isNativePlatform()) {
+        await FirebaseAuthentication.signOut();
+      }
       await signOut(auth);
     } catch (error) {
       setAuthError("Sign out failed. Please try again.");
@@ -3138,7 +3162,7 @@ function App() {
                               <p>{group.description}</p>
                             </div>
                           </div>
-                          <div className="slot-grid">
+                          <div className={`slot-grid slot-grid--${group.id}`}>
                             {group.slots.map((slot) =>
                               renderReadOnlySlot(
                                 slot,
@@ -3276,7 +3300,7 @@ function App() {
                       </div>
                     )}
                   </div>
-                  <div className="slot-grid">
+                  <div className={`slot-grid slot-grid--${group.id}`}>
                     {group.slots.map((slot) => renderSlotCard(slot))}
                   </div>
                   {breakdownPlayer && (
