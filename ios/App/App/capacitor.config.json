@@ -12,6 +12,8 @@
 		}
 	},
 	"packageClassList": [
+		"FirebaseAppPlugin",
+		"FirebaseAuthenticationPlugin",
 		"PushNotificationsPlugin"
 	]
 }
