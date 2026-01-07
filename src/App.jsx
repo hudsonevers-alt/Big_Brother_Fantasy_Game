@@ -1670,14 +1670,12 @@ function App() {
     try {
       if (Capacitor.isNativePlatform()) {
         const result = await FirebaseAuthentication.signInWithGoogle();
-        const credentialData = result?.credential || {};
-        if (!credentialData.idToken && !credentialData.accessToken) {
-          throw new Error("Missing Google auth credential.");
+        const accessToken = result?.credential?.accessToken ?? null;
+        const idToken = result?.credential?.idToken ?? null;
+        if (!accessToken && !idToken) {
+          throw new Error("No Google tokens returned from native sign-in.");
         }
-        const credential = GoogleAuthProvider.credential(
-          credentialData.idToken,
-          credentialData.accessToken
-        );
+        const credential = GoogleAuthProvider.credential(idToken, accessToken);
         const authResult = await signInWithCredential(auth, credential);
         if (authResult?.user) {
           setAuthUser(authResult.user);
