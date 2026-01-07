@@ -3,6 +3,10 @@
   "appName": "Big Brother Fantasy Game",
   "webDir": "dist",
   "plugins": {
+    "FirebaseAuthentication": {
+      "providers": ["google.com"],
+      "skipNativeAuth": true
+    },
     "PushNotifications": {
       "presentationOptions": ["badge", "sound", "alert"]
     }
