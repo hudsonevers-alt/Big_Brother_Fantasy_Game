@@ -1683,7 +1683,24 @@ function App() {
       }
       await signInWithPopup(auth, googleProvider);
     } catch (error) {
-      setAuthError("Google sign-in failed. Please try again.");
+      console.error("Google sign-in failed:", error);
+      let detail = "Unknown error";
+      if (
+        error &&
+        typeof error === "object" &&
+        "message" in error &&
+        typeof error.message === "string"
+      ) {
+        detail = error.message;
+      } else {
+        try {
+          detail = JSON.stringify(error, null, 2);
+        } catch {
+          detail = String(error);
+        }
+      }
+      setAuthError(`Google sign-in failed: ${detail}`);
+      alert(`Google sign-in failed:\n\n${detail}`);
     }
   };
 
@@ -2927,10 +2944,7 @@ function App() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => {
-                    alert("clicked");
-                    void handleGoogleSignIn();
-                  }}
+                  onClick={handleGoogleSignIn}
                   disabled={authLoading}
                 >
                   Sign in with Google
