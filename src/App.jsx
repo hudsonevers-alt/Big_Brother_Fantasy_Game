@@ -1678,10 +1678,16 @@ function App() {
           credentialData.idToken,
           credentialData.accessToken
         );
-        await signInWithCredential(auth, credential);
+        const authResult = await signInWithCredential(auth, credential);
+        if (authResult?.user) {
+          setAuthUser(authResult.user);
+        }
         return;
       }
-      await signInWithPopup(auth, googleProvider);
+      const authResult = await signInWithPopup(auth, googleProvider);
+      if (authResult?.user) {
+        setAuthUser(authResult.user);
+      }
     } catch (error) {
       console.error("Google sign-in failed:", error);
       let detail = "Unknown error";
