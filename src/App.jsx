@@ -668,6 +668,50 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let alive = true;
+
+    const checkSession = async () => {
+      try {
+        console.log("checking session start");
+        if (Capacitor.isNativePlatform()) {
+          const result = await FirebaseAuthentication.getCurrentUser();
+          console.log("native current user:", result);
+        } else {
+          console.log("web mode (skip native current user)");
+        }
+      } catch (error) {
+        console.error("session check failed:", error);
+        let detail = "Unknown error";
+        if (
+          error &&
+          typeof error === "object" &&
+          "message" in error &&
+          typeof error.message === "string"
+        ) {
+          detail = error.message;
+        } else {
+          try {
+            detail = JSON.stringify(error, null, 2);
+          } catch {
+            detail = String(error);
+          }
+        }
+        alert(`SESSION CHECK FAILED:\n\n${detail}`);
+      } finally {
+        if (alive) {
+          setAuthLoading(false);
+        }
+      }
+    };
+
+    void checkSession();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setAuthUser(user);
       setAuthLoading(false);
@@ -2883,7 +2927,10 @@ function App() {
               ) : (
                 <button
                   type="button"
-                  onClick={handleGoogleSignIn}
+                  onClick={() => {
+                    alert("clicked");
+                    void handleGoogleSignIn();
+                  }}
                   disabled={authLoading}
                 >
                   Sign in with Google
