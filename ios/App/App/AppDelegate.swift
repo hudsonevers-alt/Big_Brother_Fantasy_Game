@@ -8,7 +8,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
-        return true
+        configureFirebaseIfNeeded()
+    private func configureFirebaseIfNeeded() {
+        if FirebaseApp.app() != nil {
+            print("Firebase already configured.")
+            return
+        }
+
+        guard let plistPath = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") else {
+            print("Firebase configuration missing: GoogleService-Info.plist not found in app bundle.")
+            return
+        }
+
+        print("Firebase configuration found at: \(plistPath)")
+        FirebaseApp.configure()
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
