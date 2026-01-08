@@ -619,7 +619,7 @@ function App() {
         throw error;
       }
     };
-    console.log("fetch debug enabled, origin:", window.location.origin);
+    console.log("checkpoint A: fetch wrapper installed", window.location.origin);
   }, []);
   const leaderboardViewUser = leaderboardViewUserId
     ? leaderboardUsersById.get(leaderboardViewUserId)
@@ -1738,7 +1738,10 @@ function App() {
       if (isNative) {
         console.log("starting native google sign-in");
         const result = await FirebaseAuthentication.signInWithGoogle();
-        console.log("native result:", result);
+        console.log("native result summary:", {
+          hasCredential: Boolean(result?.credential),
+          providerId: result?.credential?.providerId ?? "unknown"
+        });
         const idToken =
           result?.credential?.idToken ??
           result?.credential?.id_token ??
@@ -1755,6 +1758,10 @@ function App() {
           hasIdToken: Boolean(idToken),
           hasAccessToken: Boolean(accessToken)
         });
+        console.log("token lengths:", {
+          idTokenLength: idToken?.length ?? 0,
+          accessTokenLength: accessToken?.length ?? 0
+        });
         if (!accessToken && !idToken) {
           alert("No tokens returned from native Google sign-in");
           throw new Error("No tokens returned from native sign-in.");
@@ -1765,6 +1772,12 @@ function App() {
           projectId: auth?.app?.options?.projectId ?? "MISSING",
           appId: auth?.app?.options?.appId ? "OK" : "MISSING"
         });
+        console.log(
+          "checkpoint A2: fetch wrapper active",
+          typeof window !== "undefined" && window.__fetchDebugPatched
+            ? "yes"
+            : "no"
+        );
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
         try {
           try {
@@ -1772,9 +1785,12 @@ function App() {
             console.log("auth persistence: inMemory");
           } catch (error) {
             console.warn("auth persistence failed:", error);
+          } finally {
+            console.log("checkpoint B: after setPersistence");
           }
           const apiKey = auth?.app?.options?.apiKey;
           if (apiKey) {
+            console.log("checkpoint C: before probe");
             try {
               const probeUrl = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`;
               const probeResponse = await withTimeout(
@@ -1792,10 +1808,14 @@ function App() {
               });
             } catch (error) {
               console.warn("identitytoolkit probe failed:", error);
+            } finally {
+              console.log("checkpoint D: after probe");
             }
           } else {
             console.warn("identitytoolkit probe skipped: missing apiKey");
+            console.log("checkpoint D: after probe");
           }
+          console.log("checkpoint E: before signInWithCredential");
           console.log("calling signInWithCredential");
           const authResult = await withTimeout(
             signInWithCredential(auth, credential),
