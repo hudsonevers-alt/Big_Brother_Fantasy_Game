@@ -29,6 +29,13 @@ import {
 import { auth, db, googleProvider } from "./firebase";
 import { initPushNotifications } from "./pushNotifications";
 
+const APP_VERSION =
+  typeof __APP_VERSION__ === "undefined" ? "0.0.0" : __APP_VERSION__;
+const GIT_SHA = typeof __GIT_SHA__ === "undefined" ? "" : __GIT_SHA__;
+const BUILD_TIME =
+  typeof __BUILD_TIME__ === "undefined" ? "" : __BUILD_TIME__;
+const VERSION_LABEL = `v${APP_VERSION}${GIT_SHA ? ` (${GIT_SHA})` : ""}`;
+
 const MAX_TRANSFERS = 2;
 const STARTING_TRANSFERS = 0;
 const ADMIN_EMAIL = "hudsonevers@gmail.com";
@@ -1667,18 +1674,67 @@ function App() {
 
   const handleGoogleSignIn = async () => {
     setAuthError("");
+    let innerAlerted = false;
+    const getErrorDetail = (error) => {
+      if (error && typeof error === "object") {
+        const code =
+          "code" in error && typeof error.code === "string" ? error.code : "";
+        const message =
+          "message" in error && typeof error.message === "string"
+            ? error.message
+            : "";
+        if (code || message) {
+          return code ? `${code}: ${message || "Unknown error"}` : message;
+        }
+      }
+      try {
+        return JSON.stringify(error, null, 2);
+      } catch {
+        return String(error);
+      }
+    };
     try {
       if (Capacitor.isNativePlatform()) {
+        console.log("starting native google sign-in");
         const result = await FirebaseAuthentication.signInWithGoogle();
-        const accessToken = result?.credential?.accessToken ?? null;
-        const idToken = result?.credential?.idToken ?? null;
+        console.log("native result:", result);
+        const idToken =
+          result?.credential?.idToken ??
+          result?.credential?.id_token ??
+          result?.authentication?.idToken ??
+          null;
+        const accessToken =
+          result?.credential?.accessToken ??
+          result?.credential?.access_token ??
+          result?.authentication?.accessToken ??
+          null;
+        console.log("extracted tokens:", {
+          hasIdToken: Boolean(idToken),
+          hasAccessToken: Boolean(accessToken)
+        });
         if (!accessToken && !idToken) {
-          throw new Error("No Google tokens returned from native sign-in.");
+          alert("No tokens returned from native Google sign-in");
+          throw new Error("No tokens returned from native sign-in.");
         }
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
-        const authResult = await signInWithCredential(auth, credential);
-        if (authResult?.user) {
-          setAuthUser(authResult.user);
+        try {
+          console.log("calling signInWithCredential");
+          const authResult = await signInWithCredential(auth, credential);
+          console.log(
+            "web firebase signed in:",
+            authResult?.user?.uid,
+            authResult?.user?.email
+          );
+          alert(`Signed in OK: ${authResult?.user?.email ?? ""}`);
+          if (authResult?.user) {
+            setAuthUser(authResult.user);
+          }
+        } catch (error) {
+          innerAlerted = true;
+          console.error("signInWithCredential failed:", error);
+          const detail = getErrorDetail(error);
+          alert(`signInWithCredential failed:\n\n${detail}`);
+          throw error;
         }
         return;
       }
@@ -1688,23 +1744,11 @@ function App() {
       }
     } catch (error) {
       console.error("Google sign-in failed:", error);
-      let detail = "Unknown error";
-      if (
-        error &&
-        typeof error === "object" &&
-        "message" in error &&
-        typeof error.message === "string"
-      ) {
-        detail = error.message;
-      } else {
-        try {
-          detail = JSON.stringify(error, null, 2);
-        } catch {
-          detail = String(error);
-        }
-      }
+      const detail = getErrorDetail(error);
       setAuthError(`Google sign-in failed: ${detail}`);
-      alert(`Google sign-in failed:\n\n${detail}`);
+      if (!innerAlerted) {
+        alert(`Google sign-in failed:\n\n${detail}`);
+      }
     }
   };
 
@@ -2909,6 +2953,12 @@ function App() {
 
   return (
     <div className="app-shell">
+      <div
+        className="app-version"
+        title={BUILD_TIME ? `Build ${BUILD_TIME}` : "Build info"}
+      >
+        {VERSION_LABEL}
+      </div>
       <main className="app">
         <div className="account-bar">
           <div className="account-card">
