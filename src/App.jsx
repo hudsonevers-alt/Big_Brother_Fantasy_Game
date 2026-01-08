@@ -3,7 +3,9 @@ import { Capacitor } from "@capacitor/core";
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import {
   GoogleAuthProvider,
+  browserLocalPersistence,
   onAuthStateChanged,
+  setPersistence,
   signInWithCredential,
   signInWithPopup,
   signOut
@@ -35,6 +37,18 @@ const GIT_SHA = typeof __GIT_SHA__ === "undefined" ? "" : __GIT_SHA__;
 const BUILD_TIME =
   typeof __BUILD_TIME__ === "undefined" ? "" : __BUILD_TIME__;
 const VERSION_LABEL = `v${APP_VERSION}${GIT_SHA ? ` (${GIT_SHA})` : ""}`;
+
+const withTimeout = (promise, ms) => {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Timed out after ${ms}ms`));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+};
 
 const MAX_TRANSFERS = 2;
 const STARTING_TRANSFERS = 0;
@@ -1693,8 +1707,9 @@ function App() {
         return String(error);
       }
     };
+    const isNative = Capacitor.isNativePlatform();
     try {
-      if (Capacitor.isNativePlatform()) {
+      if (isNative) {
         console.log("starting native google sign-in");
         const result = await FirebaseAuthentication.signInWithGoogle();
         console.log("native result:", result);
@@ -1702,11 +1717,13 @@ function App() {
           result?.credential?.idToken ??
           result?.credential?.id_token ??
           result?.authentication?.idToken ??
+          result?.idToken ??
           null;
         const accessToken =
           result?.credential?.accessToken ??
           result?.credential?.access_token ??
           result?.authentication?.accessToken ??
+          result?.accessToken ??
           null;
         console.log("extracted tokens:", {
           hasIdToken: Boolean(idToken),
@@ -1716,10 +1733,19 @@ function App() {
           alert("No tokens returned from native Google sign-in");
           throw new Error("No tokens returned from native sign-in.");
         }
+        console.log("web config:", {
+          apiKey: auth?.app?.options?.apiKey ? "OK" : "MISSING",
+          authDomain: auth?.app?.options?.authDomain ?? "MISSING",
+          projectId: auth?.app?.options?.projectId ?? "MISSING",
+          appId: auth?.app?.options?.appId ? "OK" : "MISSING"
+        });
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
         try {
           console.log("calling signInWithCredential");
-          const authResult = await signInWithCredential(auth, credential);
+          const authResult = await withTimeout(
+            signInWithCredential(auth, credential),
+            15000
+          );
           console.log(
             "web firebase signed in:",
             authResult?.user?.uid,
@@ -1737,6 +1763,12 @@ function App() {
           throw error;
         }
         return;
+      }
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+        console.log("auth persistence: browserLocal");
+      } catch (error) {
+        console.warn("auth persistence failed:", error);
       }
       const authResult = await signInWithPopup(auth, googleProvider);
       if (authResult?.user) {
