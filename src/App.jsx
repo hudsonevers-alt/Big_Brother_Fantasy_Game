@@ -4,6 +4,7 @@ import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import {
   GoogleAuthProvider,
   browserLocalPersistence,
+  inMemoryPersistence,
   onAuthStateChanged,
   setPersistence,
   signInWithCredential,
@@ -595,6 +596,31 @@ function App() {
     () => new Map(leaderboardUsers.map((user) => [user.id, user])),
     [leaderboardUsers]
   );
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (window.__fetchDebugPatched) {
+      return;
+    }
+    window.__fetchDebugPatched = true;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      console.log("[fetch]", args[0]);
+      try {
+        const response = await originalFetch(...args);
+        console.log("[fetch ok]", args[0], response.status);
+        return response;
+      } catch (error) {
+        console.log("[fetch fail]", args[0], String(error));
+        throw error;
+      }
+    };
+    console.log("fetch debug enabled, origin:", window.location.origin);
+  }, []);
   const leaderboardViewUser = leaderboardViewUserId
     ? leaderboardUsersById.get(leaderboardViewUserId)
     : null;
@@ -1741,6 +1767,12 @@ function App() {
         });
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
         try {
+          try {
+            await setPersistence(auth, inMemoryPersistence);
+            console.log("auth persistence: inMemory");
+          } catch (error) {
+            console.warn("auth persistence failed:", error);
+          }
           const apiKey = auth?.app?.options?.apiKey;
           if (apiKey) {
             try {
