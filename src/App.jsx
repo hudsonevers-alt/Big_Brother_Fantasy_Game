@@ -4,7 +4,6 @@ import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import {
   GoogleAuthProvider,
   browserLocalPersistence,
-  inMemoryPersistence,
   onAuthStateChanged,
   setPersistence,
   signInWithCredential,
@@ -48,6 +47,17 @@ const withTimeout = (promise, ms) => {
   });
   return Promise.race([promise, timeout]).finally(() => {
     clearTimeout(timeoutId);
+  });
+};
+
+const logPluginError = (label, error) => {
+  console.log(`${label} error details`, {
+    name: error?.name,
+    code: error?.code,
+    message: error?.message,
+    cause: error?.cause,
+    customData: error?.customData,
+    stack: error?.stack
   });
 };
 
@@ -728,6 +738,7 @@ function App() {
         }
       } catch (error) {
         console.error("session check failed:", error);
+        logPluginError("FirebaseAuthentication.getCurrentUser", error);
         let detail = "Unknown error";
         if (
           error &&
@@ -1779,18 +1790,11 @@ function App() {
             : "no"
         );
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
+        console.log("checkpoint B: credential created");
         try {
-          try {
-            await setPersistence(auth, inMemoryPersistence);
-            console.log("auth persistence: inMemory");
-          } catch (error) {
-            console.warn("auth persistence failed:", error);
-          } finally {
-            console.log("checkpoint B: after setPersistence");
-          }
           const apiKey = auth?.app?.options?.apiKey;
           if (apiKey) {
-            console.log("checkpoint C: before probe");
+            console.log("checkpoint C: before probe fetch");
             try {
               const probeUrl = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`;
               const probeResponse = await withTimeout(
@@ -1801,7 +1805,9 @@ function App() {
                 }),
                 12000
               );
-              const probeText = await probeResponse.text();
+              console.log("checkpoint D: after probe fetch", probeResponse.status);
+              const probeText = await withTimeout(probeResponse.text(), 12000);
+              console.log("checkpoint E: after probe text");
               console.log("identitytoolkit probe accounts:lookup:", {
                 status: probeResponse.status,
                 body: probeText.slice(0, 300)
@@ -1809,18 +1815,19 @@ function App() {
             } catch (error) {
               console.warn("identitytoolkit probe failed:", error);
             } finally {
-              console.log("checkpoint D: after probe");
+              console.log("checkpoint E2: probe finished");
             }
           } else {
             console.warn("identitytoolkit probe skipped: missing apiKey");
-            console.log("checkpoint D: after probe");
+            console.log("checkpoint E2: probe skipped");
           }
-          console.log("checkpoint E: before signInWithCredential");
+          console.log("checkpoint F: before signInWithCredential");
           console.log("calling signInWithCredential");
           const authResult = await withTimeout(
             signInWithCredential(auth, credential),
             15000
           );
+          console.log("checkpoint G: after signInWithCredential");
           console.log(
             "web firebase signed in:",
             authResult?.user?.uid,
