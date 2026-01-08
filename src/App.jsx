@@ -604,47 +604,6 @@ function App() {
     () => new Map(leaderboardUsers.map((user) => [user.id, user])),
     [leaderboardUsers]
   );
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) {
-      return;
-    }
-    if (typeof window === "undefined") {
-      return;
-    }
-    if (window.__fetchDebugPatched) {
-      return;
-    }
-    window.__fetchDebugPatched = true;
-    const originalFetch = window.fetch.bind(window);
-    window.fetch = async (...args) => {
-      console.log("[fetch]", args[0]);
-      try {
-        const response = await originalFetch(...args);
-        if (
-          response.ok &&
-          typeof args[0] === "string" &&
-          args[0].includes("identitytoolkit.googleapis.com")
-        ) {
-          try {
-            const bodyText = await response.clone().text();
-            console.log(
-              "[fetch body]",
-              args[0],
-              bodyText.slice(0, 200)
-            );
-          } catch (error) {
-            console.log("[fetch body error]", args[0], String(error));
-          }
-        }
-        console.log("[fetch ok]", args[0], response.status);
-        return response;
-      } catch (error) {
-        console.log("[fetch fail]", args[0], String(error));
-        throw error;
-      }
-    };
-    console.log("checkpoint A: fetch wrapper installed", window.location.origin);
-  }, []);
   const leaderboardViewUser = leaderboardViewUserId
     ? leaderboardUsersById.get(leaderboardViewUserId)
     : null;
@@ -1797,51 +1756,13 @@ function App() {
           projectId: auth?.app?.options?.projectId ?? "MISSING",
           appId: auth?.app?.options?.appId ? "OK" : "MISSING"
         });
-        console.log(
-          "checkpoint A2: fetch wrapper active",
-          typeof window !== "undefined" && window.__fetchDebugPatched
-            ? "yes"
-            : "no"
-        );
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
-        console.log("checkpoint B: credential created");
         try {
-          const apiKey = auth?.app?.options?.apiKey;
-          if (apiKey) {
-            console.log("checkpoint C: before probe fetch");
-            try {
-              const probeUrl = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`;
-              const probeResponse = await withTimeout(
-                fetch(probeUrl, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ idToken: "bad" })
-                }),
-                12000
-              );
-              console.log("checkpoint D: after probe fetch", probeResponse.status);
-              const probeText = await withTimeout(probeResponse.text(), 12000);
-              console.log("checkpoint E: after probe text");
-              console.log("identitytoolkit probe accounts:lookup:", {
-                status: probeResponse.status,
-                body: probeText.slice(0, 300)
-              });
-            } catch (error) {
-              console.warn("identitytoolkit probe failed:", error);
-            } finally {
-              console.log("checkpoint E2: probe finished");
-            }
-          } else {
-            console.warn("identitytoolkit probe skipped: missing apiKey");
-            console.log("checkpoint E2: probe skipped");
-          }
-          console.log("checkpoint F: before signInWithCredential");
           console.log("calling signInWithCredential");
           const authResult = await withTimeout(
             signInWithCredential(auth, credential),
             15000
           );
-          console.log("checkpoint G: after signInWithCredential");
           console.log(
             "web firebase signed in:",
             authResult?.user?.uid,
