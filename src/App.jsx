@@ -1744,22 +1744,19 @@ function App() {
           const apiKey = auth?.app?.options?.apiKey;
           if (apiKey) {
             try {
+              const probeUrl = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`;
               const probeResponse = await withTimeout(
-                fetch(
-                  `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ returnSecureToken: true })
-                  }
-                ),
+                fetch(probeUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ idToken: "bad" })
+                }),
                 12000
               );
               const probeText = await probeResponse.text();
-              console.log("identitytoolkit probe:", {
-                ok: probeResponse.ok,
+              console.log("identitytoolkit probe accounts:lookup:", {
                 status: probeResponse.status,
-                body: probeText.slice(0, 200)
+                body: probeText.slice(0, 300)
               });
             } catch (error) {
               console.warn("identitytoolkit probe failed:", error);
@@ -1784,8 +1781,17 @@ function App() {
         } catch (error) {
           innerAlerted = true;
           console.error("signInWithCredential failed:", error);
-          const detail = getErrorDetail(error);
-          alert(`signInWithCredential failed:\n\n${detail}`);
+          console.log("signInWithCredential error raw:", error);
+          console.log("name:", error?.name);
+          console.log("code:", error?.code);
+          console.log("message:", error?.message);
+          console.log("customData:", error?.customData);
+          console.log("stack:", error?.stack);
+          alert(
+            `signInWithCredential failed: ${
+              error?.code || error?.message || String(error)
+            }`
+          );
           throw error;
         }
         return;
