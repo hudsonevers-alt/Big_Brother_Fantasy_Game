@@ -5,7 +5,6 @@ import {
   GoogleAuthProvider,
   browserLocalPersistence,
   onAuthStateChanged,
-  setLogLevel,
   setPersistence,
   signInWithCredential,
   signInWithPopup,
@@ -50,8 +49,6 @@ const withTimeout = (promise, ms) => {
     clearTimeout(timeoutId);
   });
 };
-
-setLogLevel("debug");
 
 const MAX_TRANSFERS = 2;
 const STARTING_TRANSFERS = 0;
