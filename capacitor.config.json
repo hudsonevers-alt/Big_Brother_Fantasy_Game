@@ -2,6 +2,11 @@
   "appId": "com.bbfg.app",
   "appName": "Big Brother Fantasy Game",
   "webDir": "dist",
+  "server": {
+    "hostname": "localhost",
+    "iosScheme": "https",
+    "androidScheme": "https"
+  },
   "plugins": {
     "FirebaseAuthentication": {
       "providers": ["google.com"],

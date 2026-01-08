@@ -5,6 +5,7 @@ import {
   GoogleAuthProvider,
   browserLocalPersistence,
   onAuthStateChanged,
+  setLogLevel,
   setPersistence,
   signInWithCredential,
   signInWithPopup,
@@ -49,6 +50,8 @@ const withTimeout = (promise, ms) => {
     clearTimeout(timeoutId);
   });
 };
+
+setLogLevel("debug");
 
 const MAX_TRANSFERS = 2;
 const STARTING_TRANSFERS = 0;
@@ -1741,6 +1744,32 @@ function App() {
         });
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
         try {
+          const apiKey = auth?.app?.options?.apiKey;
+          if (apiKey) {
+            try {
+              const probeResponse = await withTimeout(
+                fetch(
+                  `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ returnSecureToken: true })
+                  }
+                ),
+                12000
+              );
+              const probeText = await probeResponse.text();
+              console.log("identitytoolkit probe:", {
+                ok: probeResponse.ok,
+                status: probeResponse.status,
+                body: probeText.slice(0, 200)
+              });
+            } catch (error) {
+              console.warn("identitytoolkit probe failed:", error);
+            }
+          } else {
+            console.warn("identitytoolkit probe skipped: missing apiKey");
+          }
           console.log("calling signInWithCredential");
           const authResult = await withTimeout(
             signInWithCredential(auth, credential),
