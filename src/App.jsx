@@ -3,9 +3,7 @@ import { Capacitor } from "@capacitor/core";
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import {
   GoogleAuthProvider,
-  browserLocalPersistence,
   onAuthStateChanged,
-  setPersistence,
   signInWithCredential,
   signInWithPopup,
   signOut
@@ -622,6 +620,22 @@ function App() {
       console.log("[fetch]", args[0]);
       try {
         const response = await originalFetch(...args);
+        if (
+          response.ok &&
+          typeof args[0] === "string" &&
+          args[0].includes("identitytoolkit.googleapis.com")
+        ) {
+          try {
+            const bodyText = await response.clone().text();
+            console.log(
+              "[fetch body]",
+              args[0],
+              bodyText.slice(0, 200)
+            );
+          } catch (error) {
+            console.log("[fetch body error]", args[0], String(error));
+          }
+        }
         console.log("[fetch ok]", args[0], response.status);
         return response;
       } catch (error) {
@@ -1854,12 +1868,6 @@ function App() {
           throw error;
         }
         return;
-      }
-      try {
-        await setPersistence(auth, browserLocalPersistence);
-        console.log("auth persistence: browserLocal");
-      } catch (error) {
-        console.warn("auth persistence failed:", error);
       }
       const authResult = await signInWithPopup(auth, googleProvider);
       if (authResult?.user) {
