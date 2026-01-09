@@ -3423,6 +3423,55 @@ function App() {
               </div>
             )}
 
+            {(nextWeek || Number.isFinite(currentWeekIndex)) && (
+              <div className="team-controls">
+                {!isPreseason && !isEditable && (
+                  <button
+                    type="button"
+                    className="pick-button"
+                    onClick={goToNextWeekPick}
+                    disabled={!nextWeek || !authUser}
+                  >
+                    Pick for next week
+                  </button>
+                )}
+                <div className="team-controls-row">
+                  <div className="week-nav week-nav--slim">
+                    <button
+                      type="button"
+                      onClick={goToPreviousWeek}
+                      disabled={displayedWeekIndex <= minViewIndex}
+                      aria-label="Previous week"
+                    >
+                      <span aria-hidden>{"<"}</span>
+                    </button>
+                    <span className="week-label">
+                      Week {displayedWeekIndex + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={goToNextWeek}
+                      disabled={displayedWeekIndex >= maxViewIndex}
+                      aria-label="Next week"
+                    >
+                      <span aria-hidden>{">"}</span>
+                    </button>
+                  </div>
+                  <div className="team-controls-right">
+                    <span
+                      className={`group-metric ${
+                        isEditable ? "transfer-metric" : ""
+                      }`}
+                    >
+                      {isEditable
+                        ? `transfers: ${transfersRemaining}`
+                        : `points: ${displayedTeamPoints}`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {rosterGroups.map((group) => {
               const breakdownPlayer =
                 breakdownSelection?.groupId === group.id
@@ -3450,59 +3499,11 @@ function App() {
 
               return (
                 <section className="team-group" key={group.id}>
-                  <div
-                    className={`group-header ${group.id === "hoh" ? "has-controls" : ""}`}
-                  >
+                  <div className="group-header">
                     <div className="group-info">
                       <h2>{group.title}</h2>
                       <p>{group.description}</p>
                     </div>
-                    {group.id === "hoh" && (
-                      <div className="group-controls">
-                        <div className="week-nav">
-                          <button
-                            type="button"
-                            onClick={goToPreviousWeek}
-                            disabled={displayedWeekIndex <= minViewIndex}
-                            aria-label="Previous week"
-                          >
-                            <span aria-hidden>{"<"}</span>
-                          </button>
-                          <span className="week-label">
-                            Week {displayedWeekIndex + 1}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={goToNextWeek}
-                            disabled={displayedWeekIndex >= maxViewIndex}
-                            aria-label="Next week"
-                          >
-                            <span aria-hidden>{">"}</span>
-                          </button>
-                        </div>
-                        <div className="group-controls-right">
-                          <span
-                            className={`group-metric ${
-                              isEditable ? "transfer-metric" : ""
-                            }`}
-                          >
-                            {isEditable
-                              ? `transfers: ${transfersRemaining}`
-                              : `points: ${displayedTeamPoints}`}
-                          </span>
-                          {!isPreseason && !isEditable && (
-                            <button
-                              type="button"
-                              className="pick-button"
-                              onClick={goToNextWeekPick}
-                              disabled={!nextWeek || !authUser}
-                            >
-                              Pick for next week
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
                   </div>
                   <div className={`slot-grid slot-grid--${group.id}`}>
                     {group.slots.map((slot) => renderSlotCard(slot))}
