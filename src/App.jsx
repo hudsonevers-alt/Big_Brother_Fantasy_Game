@@ -596,6 +596,7 @@ function App() {
   const [now, setNow] = useState(() => new Date());
   const profileInitRef = useRef(false);
   const chatThreadRef = useRef(null);
+  const transferErrorTimeoutRef = useRef(null);
   const playersById = useMemo(
     () => new Map(players.map((player) => [player.id, player])),
     [players]
@@ -696,6 +697,29 @@ function App() {
   useEffect(() => {
     void initPushNotifications();
   }, []);
+
+  useEffect(() => {
+    if (transferErrorTimeoutRef.current) {
+      clearTimeout(transferErrorTimeoutRef.current);
+      transferErrorTimeoutRef.current = null;
+    }
+
+    if (!transferError) {
+      return;
+    }
+
+    transferErrorTimeoutRef.current = window.setTimeout(() => {
+      setTransferError("");
+      transferErrorTimeoutRef.current = null;
+    }, 7000);
+
+    return () => {
+      if (transferErrorTimeoutRef.current) {
+        clearTimeout(transferErrorTimeoutRef.current);
+        transferErrorTimeoutRef.current = null;
+      }
+    };
+  }, [transferError]);
 
   useEffect(() => {
     let alive = true;
