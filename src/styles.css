@@ -29,7 +29,9 @@
 html,
 body {
   width: 100%;
+  max-width: 100vw;
   overflow-x: hidden;
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -37,6 +39,13 @@ body {
   background: radial-gradient(circle at 15% 20%, #ffffff 0%, #eef8fd 45%, #d7effb 100%);
   color: var(--ink-1);
   touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+#root {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 .app-shell {
@@ -44,6 +53,9 @@ body {
   min-height: 100vh;
   padding-bottom: calc(90px + var(--safe-area-bottom));
   overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
+  overscroll-behavior-y: none;
 }
 
 .app-version {
@@ -87,14 +99,16 @@ body {
 }
 
 .app {
-  max-width: 1120px;
+  max-width: min(1120px, 100vw);
   margin: 0 auto;
-  padding: 2.5rem 1.5rem 2rem;
+  padding: 2rem 1.5rem 2rem;
+  padding-top: calc(2rem + env(safe-area-inset-top, 0px));
   display: flex;
   flex-direction: column;
   gap: 2.5rem;
   position: relative;
   z-index: 1;
+  width: 100%;
 }
 
 h1,
@@ -907,11 +921,12 @@ h2 {
 .slot-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  --slot-grid-gap: 1.1rem;
+  --slot-grid-gap: 0.9rem;
   gap: var(--slot-grid-gap);
-  margin-top: 1.2rem;
+  margin-top: 0.9rem;
   position: relative;
   overflow: visible;
+  max-width: 100%;
 }
 
 .slot-grid--hoh,
@@ -994,10 +1009,10 @@ h2 {
 .slot-card {
   background: var(--paper-1);
   border: 1px solid var(--border-1);
-  border-radius: 22px;
-  padding: 1rem;
+  border-radius: 18px;
+  padding: 0.6rem;
   display: grid;
-  gap: 0.85rem;
+  gap: 0.5rem;
   box-shadow: 0 10px 22px rgba(11, 31, 59, 0.12);
   position: relative;
   overflow: visible;
@@ -1012,7 +1027,7 @@ h2 {
 .slot-actions {
   display: flex;
   justify-content: center;
-  gap: 0.6rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
 }
 
@@ -1045,14 +1060,14 @@ h2 {
 }
 
 .slot-avatar {
-  width: 96px;
-  height: 96px;
+  width: 64px;
+  height: 64px;
   border-radius: 999px;
   background: linear-gradient(135deg, #43bae5, #9ae0f7);
   display: grid;
   place-items: center;
   color: #fff;
-  font-size: 1.5rem;
+  font-size: 1.1rem;
   font-weight: 700;
   margin: 0 auto;
   overflow: hidden;
@@ -1072,8 +1087,8 @@ h2 {
 }
 
 .slot-avatar.preview {
-  width: 84px;
-  height: 84px;
+  width: 64px;
+  height: 64px;
 }
 
 .slot-avatar img {
@@ -1088,11 +1103,12 @@ h2 {
 
 .slot-name {
   font-weight: 700;
+  font-size: 0.95rem;
 }
 
 .slot-score {
-  margin-top: 0.35rem;
-  font-size: 1.6rem;
+  margin-top: 0.2rem;
+  font-size: 1.2rem;
   font-weight: 700;
   color: var(--ink-1);
 }
@@ -1795,7 +1811,8 @@ input[type="file"] {
 
 @media (max-width: 540px) {
   .app {
-    padding: 1.75rem 1rem 1.25rem;
+    padding: 1.5rem 1rem 1.25rem;
+    padding-top: calc(1.5rem + env(safe-area-inset-top, 0px));
     gap: 1.75rem;
   }
 
@@ -1813,11 +1830,11 @@ input[type="file"] {
   }
 
   .slot-card {
-    padding: 0.9rem;
+    padding: 0.55rem;
   }
 
   .slot-grid {
-    --slot-grid-gap: 0.9rem;
+    --slot-grid-gap: 0.8rem;
     grid-template-columns: 1fr;
   }
 
@@ -1827,14 +1844,14 @@ input[type="file"] {
   }
 
   .slot-avatar {
-    width: 76px;
-    height: 76px;
-    font-size: 1.2rem;
+    width: 60px;
+    height: 60px;
+    font-size: 1.05rem;
   }
 
   .slot-avatar.preview {
-    width: 68px;
-    height: 68px;
+    width: 60px;
+    height: 60px;
   }
 
   .chat-thread {

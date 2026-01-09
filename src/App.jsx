@@ -2438,10 +2438,6 @@ function App() {
             !
           </span>
         )}
-        <div className="slot-top">
-          <span className="slot-tag">{slot.label}</span>
-          <span className="slot-group">{slot.group}</span>
-        </div>
         <div className="slot-avatar">
           {player && player.photo ? (
             <img src={player.photo} alt={player.name} />
@@ -2506,10 +2502,6 @@ function App() {
             !
           </span>
         )}
-        <div className="slot-top">
-          <span className="slot-tag">{slot.label}</span>
-          <span className="slot-group">{slot.group}</span>
-        </div>
         <button
           type="button"
           className="slot-avatar-button"
