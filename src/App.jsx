@@ -1261,14 +1261,9 @@ function App() {
   const deadlineCountdown = nextWeek
     ? formatCountdown(new Date(nextWeek.deadline).getTime() - now.getTime())
     : "--:--:--";
+  const deadlineWeekNumber = nextWeek ? nextWeekIndex + 1 : displayedWeekIndex + 1;
+  const deadlineTitle = `Gameweek ${deadlineWeekNumber} deadline in`;
   const deadlineLabel = nextWeek ? formatDeadline(nextWeek.deadline) : "Add a week";
-  const displayedWeek = weeks[displayedWeekIndex] || null;
-  const displayedWeekLabel = displayedWeek
-    ? displayedWeek.name
-    : `Week ${displayedWeekIndex + 1}`;
-  const lineupLabel = displayedWeek
-    ? `Lineup for ${displayedWeekLabel}`
-    : "Add a new week to keep playing.";
   const hasCommittedTeam = Boolean(userProfile?.hasCommittedTeam);
   const isDrafting = Boolean(authUser && !hasCommittedTeam);
   const isUnlimitedTransfers = isPreseason || isDrafting;
@@ -1344,6 +1339,7 @@ function App() {
       : isEditable
         ? "Pick your team"
         : "Your team";
+  const showTeamHeading = isEditable || isPreseason || isDrafting;
   const viewTeam = useMemo(() => {
     if (isPreseason) {
       return draftNextTeam;
@@ -1399,6 +1395,8 @@ function App() {
       }, 0),
     [displayedWeekIndex, playersById, viewTeam, weekEvents]
   );
+  const teamMetricValue = isEditable ? transfersRemaining : displayedTeamPoints;
+  const teamMetricLabel = isEditable ? "transfers" : "pts";
 
   const getTeamPointsForWeek = useCallback(
     (team, weekIndex) =>
@@ -3385,18 +3383,26 @@ function App() {
           )}
           {activeTab === "team" && (
             <section className="team-view">
-            <header className="page-header team-header">
-              <div className="team-header-info">
-                <div className="meta-card deadline-card">
-                  <span className="meta-label">Deadline in</span>
-                  <span className="meta-value">{deadlineCountdown}</span>
-                  <span className="meta-helper">{deadlineLabel}</span>
+              <header className="page-header team-header">
+                <div className="team-header-info">
+                  <div className="meta-card deadline-card">
+                    <span className="meta-label">{deadlineTitle}</span>
+                    <span className="meta-value">{deadlineCountdown}</span>
+                    <span className="meta-helper">{deadlineLabel}</span>
+                  </div>
+                  {!isPreseason && !isEditable && (
+                    <button
+                      type="button"
+                      className="pick-button team-change-button"
+                      onClick={goToNextWeekPick}
+                      disabled={!nextWeek || !authUser}
+                    >
+                      Make changes
+                    </button>
+                  )}
+                  {showTeamHeading && <h1>{teamHeaderTitle}</h1>}
                 </div>
-                <p className="eyebrow">Big Brother Fantasy</p>
-                <h1>{teamHeaderTitle}</h1>
-                <p className="page-subtitle">{lineupLabel}</p>
-              </div>
-            </header>
+              </header>
 
               {transferError && <p className="notice">{transferError}</p>}
               {!authUser && (
@@ -3414,28 +3420,23 @@ function App() {
               {!nextWeek && (
                 <div className="empty-state">
                   <p>No upcoming week. Add one in Admin to keep drafting.</p>
-              </div>
-            )}
+                </div>
+              )}
 
-            {players.length === 0 && (
-              <div className="empty-state">
-                <p>Add players in Admin to start building your team.</p>
-              </div>
-            )}
+              {players.length === 0 && (
+                <div className="empty-state">
+                  <p>Add players in Admin to start building your team.</p>
+                </div>
+              )}
 
-            {(nextWeek || Number.isFinite(currentWeekIndex)) && (
-              <div className="team-controls">
-                {!isPreseason && !isEditable && (
-                  <button
-                    type="button"
-                    className="pick-button"
-                    onClick={goToNextWeekPick}
-                    disabled={!nextWeek || !authUser}
-                  >
-                    Pick for next week
-                  </button>
-                )}
-                <div className="team-controls-row">
+              {(nextWeek || Number.isFinite(currentWeekIndex)) && (
+                <div className="team-controls">
+                  <div className="team-metric">
+                    <span className="team-metric-value">{teamMetricValue}</span>
+                    {teamMetricLabel && (
+                      <span className="team-metric-label">{teamMetricLabel}</span>
+                    )}
+                  </div>
                   <div className="week-nav week-nav--slim">
                     <button
                       type="button"
@@ -3457,20 +3458,8 @@ function App() {
                       <span aria-hidden>{">"}</span>
                     </button>
                   </div>
-                  <div className="team-controls-right">
-                    <span
-                      className={`group-metric ${
-                        isEditable ? "transfer-metric" : ""
-                      }`}
-                    >
-                      {isEditable
-                        ? `transfers: ${transfersRemaining}`
-                        : `points: ${displayedTeamPoints}`}
-                    </span>
-                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {rosterGroups.map((group) => {
               const breakdownPlayer =
