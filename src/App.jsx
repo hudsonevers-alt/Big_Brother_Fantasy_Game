@@ -2536,11 +2536,22 @@ function App() {
               <div className="player-select">
                 <button
                   type="button"
-                  className="ghost change-button"
+                  className="slot-action-button"
                   onClick={handleToggleMenu}
                   aria-expanded={isMenuOpen}
+                  aria-label={playerId ? "Change player" : "Select player"}
+                  title={playerId ? "Change player" : "Select player"}
                 >
-                  {playerId ? "Change" : "Select"}
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M4 7h11m0 0-3-3m3 3-3 3M20 17H9m0 0 3-3m-3 3 3 3"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </button>
                 {isMenuOpen && (
                   <div className="player-select-menu">
@@ -2576,11 +2587,21 @@ function App() {
               </div>
               <button
                 type="button"
-                className="ghost"
+                className="slot-action-button danger"
                 onClick={() => handleRemoveFromSlot(slot.id)}
                 disabled={!playerId}
+                aria-label="Remove player"
+                title="Remove player"
               >
-                Remove
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M6 6l12 12M18 6l-12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
               </button>
             </div>
           </>
