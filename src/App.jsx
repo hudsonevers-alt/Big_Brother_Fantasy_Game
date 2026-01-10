@@ -164,6 +164,7 @@ const tabs = [
 ];
 const swipeTabs = ["chat", "team", "boards"];
 const SWIPE_TRIGGER_DISTANCE = 80;
+const LEADERBOARD_PAGE_SIZE = 50;
 
 const createEmptyTeam = () =>
   rosterSlots.reduce((acc, slot) => {
@@ -615,6 +616,8 @@ function App() {
   const [leaderboardWeekIndex, setLeaderboardWeekIndex] = useState(0);
   const [leaderboardScope, setLeaderboardScope] = useState("global");
   const [leaderboardFilterOpen, setLeaderboardFilterOpen] = useState(false);
+  const [leaderboardPage, setLeaderboardPage] = useState(1);
+  const [leaguePage, setLeaguePage] = useState(1);
   const [leagueManagerOpen, setLeagueManagerOpen] = useState(false);
   const [managedLeagueId, setManagedLeagueId] = useState(null);
   const [leaderboardUsers, setLeaderboardUsers] = useState([]);
@@ -1271,6 +1274,19 @@ function App() {
   }, [leaderboardScope]);
 
   useEffect(() => {
+    setLeaderboardPage(1);
+    setLeaguePage(1);
+  }, [leaderboardScope]);
+
+  useEffect(() => {
+    setLeaderboardPage(1);
+  }, [leaderboardMode, leaderboardWeekIndex]);
+
+  useEffect(() => {
+    setLeaguePage(1);
+  }, [leaderboardMode, leaderboardWeekIndex, selectedLeagueId]);
+
+  useEffect(() => {
     if (chatScope !== "leagues") {
       return;
     }
@@ -1643,6 +1659,33 @@ function App() {
     selectedLeague,
     weeks
   ]);
+  const leaderboardUserRankLabel = useMemo(() => {
+    if (!authUser) {
+      return "";
+    }
+    const index = leaderboardEntries.findIndex(
+      (entry) => entry.id === authUser.uid
+    );
+    return index === -1 ? "--" : `#${index + 1}`;
+  }, [authUser, leaderboardEntries]);
+  const leaderboardPageCount = Math.max(
+    1,
+    Math.ceil(leaderboardEntries.length / LEADERBOARD_PAGE_SIZE)
+  );
+  const leaguePageCount = Math.max(
+    1,
+    Math.ceil(leagueEntries.length / LEADERBOARD_PAGE_SIZE)
+  );
+  const leaderboardPageStart = (leaderboardPage - 1) * LEADERBOARD_PAGE_SIZE;
+  const leaguePageStart = (leaguePage - 1) * LEADERBOARD_PAGE_SIZE;
+  const leaderboardPageEntries = leaderboardEntries.slice(
+    leaderboardPageStart,
+    leaderboardPageStart + LEADERBOARD_PAGE_SIZE
+  );
+  const leaguePageEntries = leagueEntries.slice(
+    leaguePageStart,
+    leaguePageStart + LEADERBOARD_PAGE_SIZE
+  );
   const leaderboardFilterOptions = useMemo(() => {
     const options = [{ label: "total", mode: "season" }];
     if (!Number.isFinite(currentWeekIndex)) {
@@ -1668,6 +1711,13 @@ function App() {
       : leaderboardFilterWeekLabel || "total";
   const leaderboardEntryLabel =
     leaderboardMode === "season" ? "Total" : leaderboardFilterWeekLabel;
+  useEffect(() => {
+    setLeaderboardPage((prev) => Math.min(prev, leaderboardPageCount));
+  }, [leaderboardPageCount]);
+
+  useEffect(() => {
+    setLeaguePage((prev) => Math.min(prev, leaguePageCount));
+  }, [leaguePageCount]);
   const leaderboardViewTeam = leaderboardViewUser
     ? leaderboardViewUser.teams?.[leaderboardViewWeekIndex] || emptyTeam
     : emptyTeam;
@@ -3146,6 +3196,34 @@ function App() {
 
   const renderLeaderboard = () => {
     const isLeagueView = leaderboardScope === "leagues";
+    const renderPagination = (currentPage, totalPages, onChange) => {
+      if (totalPages <= 1) {
+        return null;
+      }
+      return (
+        <div className="leaderboard-pagination">
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => onChange(Math.max(1, currentPage - 1))}
+            disabled={currentPage <= 1}
+          >
+            Prev
+          </button>
+          <span className="leaderboard-page-label">
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => onChange(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage >= totalPages}
+          >
+            Next
+          </button>
+        </div>
+      );
+    };
     const renderLeaderboardFilter = () => (
       <div className="leaderboard-filter" ref={leaderboardFilterRef}>
         <button
@@ -3230,14 +3308,25 @@ function App() {
 
         {!isLeagueView ? (
           <div className="leaderboard-card">
-            <div className="leaderboard-card-toolbar">
+            <div
+              className={`leaderboard-card-toolbar ${
+                authUser ? "has-rank" : ""
+              }`}
+            >
+              {authUser && (
+                <p className="leaderboard-rank-note">
+                  You: {leaderboardUserRankLabel}
+                </p>
+              )}
               {renderLeaderboardFilter()}
             </div>
             {leaderboardEntries.length === 0 ? (
               <p className="empty-note">No leaderboard data yet.</p>
             ) : (
               <ol className="leaderboard-list">
-                {leaderboardEntries.map((entry, index) => (
+                {leaderboardPageEntries.map((entry, index) => {
+                  const rank = leaderboardPageStart + index + 1;
+                  return (
                   <li key={entry.id}>
                     <button
                       type="button"
@@ -3245,7 +3334,7 @@ function App() {
                       onClick={() => handleOpenLeaderboardTeam(entry.id)}
                       aria-label={`View ${entry.name}'s team`}
                     >
-                      <span className="leaderboard-rank">#{index + 1}</span>
+                      <span className="leaderboard-rank">#{rank}</span>
                       <div className="leaderboard-user">
                         <div className="avatar-small">
                           {entry.photoURL ? (
@@ -3264,9 +3353,11 @@ function App() {
                       <span className="leaderboard-score">{entry.points} pts</span>
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
             )}
+            {renderPagination(leaderboardPage, leaderboardPageCount, setLeaderboardPage)}
           </div>
         ) : (
           <div className="leaderboard-card league-card">
@@ -3339,7 +3430,9 @@ function App() {
                     <p className="empty-note">No league data yet.</p>
                   ) : (
                     <ol className="leaderboard-list">
-                      {leagueEntries.map((entry, index) => (
+                      {leaguePageEntries.map((entry, index) => {
+                        const rank = leaguePageStart + index + 1;
+                        return (
                         <li key={entry.id}>
                           <button
                             type="button"
@@ -3347,7 +3440,7 @@ function App() {
                             onClick={() => handleOpenLeaderboardTeam(entry.id)}
                             aria-label={`View ${entry.name}'s team`}
                           >
-                            <span className="leaderboard-rank">#{index + 1}</span>
+                            <span className="leaderboard-rank">#{rank}</span>
                             <div className="leaderboard-user">
                               <div className="avatar-small">
                                 {entry.photoURL ? (
@@ -3368,10 +3461,12 @@ function App() {
                             </span>
                           </button>
                         </li>
-                      ))}
+                        );
+                      })}
                     </ol>
                   )}
                 </div>
+                {renderPagination(leaguePage, leaguePageCount, setLeaguePage)}
               </div>
             )}
           </div>

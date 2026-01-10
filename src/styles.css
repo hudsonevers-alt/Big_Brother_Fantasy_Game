@@ -414,6 +414,15 @@ h2 {
   margin-bottom: 0.75rem;
 }
 
+.leaderboard-card-toolbar.has-rank {
+  justify-content: space-between;
+}
+
+.leaderboard-rank-note {
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
 .leaderboard-filter {
   position: relative;
 }
@@ -421,8 +430,10 @@ h2 {
 .leaderboard-filter-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.45rem 0.9rem;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.3rem 1.2rem;
+  min-width: 140px;
   border-radius: 999px;
   border: 1px solid var(--border-1);
   background: var(--paper-1);
@@ -443,8 +454,8 @@ h2 {
 }
 
 .leaderboard-filter-trigger .icon-chevron {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 .leaderboard-filter-label {
@@ -779,7 +790,7 @@ h2 {
 
 .account-bar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .account-stack {
@@ -1133,6 +1144,9 @@ h2 {
   background: var(--paper-1);
   color: var(--ink-1);
   box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .league-back:hover {
@@ -1223,6 +1237,19 @@ h2 {
   gap: 0.75rem;
   margin-top: 1rem;
   padding: 0;
+}
+
+.leaderboard-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.leaderboard-page-label {
+  font-weight: 600;
+  color: var(--ink-2);
 }
 
 .leaderboard-row {
