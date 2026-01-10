@@ -1072,6 +1072,11 @@ h2 {
   gap: 0.6rem;
 }
 
+.league-rows {
+  display: grid;
+  gap: 0.75rem;
+}
+
 .league-pills {
   display: flex;
   flex-wrap: wrap;
@@ -1103,6 +1108,64 @@ h2 {
   align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
+}
+
+.league-detail-header--inline {
+  flex-wrap: nowrap;
+}
+
+.league-detail-header--inline .leaderboard-filter {
+  flex-shrink: 0;
+}
+
+.league-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.league-back {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border-1);
+  background: var(--paper-1);
+  color: var(--ink-1);
+  box-shadow: none;
+}
+
+.league-back:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(11, 31, 59, 0.16);
+}
+
+.league-back svg {
+  width: 20px;
+  height: 20px;
+}
+
+.league-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid var(--border-1);
+  background: var(--paper-1);
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.league-row:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(11, 31, 59, 0.14);
 }
 
 .league-manager-grid {
@@ -2285,6 +2348,10 @@ input[type="file"] {
   .leaderboard-controls {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .league-detail-header--inline {
+    flex-wrap: wrap;
   }
 
   .leaderboard-week-row {

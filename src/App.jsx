@@ -692,23 +692,6 @@ function App() {
     () => leagues.find((league) => league.id === selectedLeagueId) || null,
     [leagues, selectedLeagueId]
   );
-  const leagueMembers = useMemo(() => {
-    if (!selectedLeague) {
-      return [];
-    }
-    const memberIds = Array.isArray(selectedLeague.memberIds)
-      ? selectedLeague.memberIds
-      : [];
-    return memberIds.map(
-      (memberId) =>
-        leaderboardUsersById.get(memberId) || {
-          id: memberId,
-          displayName: "Unknown",
-          avatarUrl: "",
-          photoURL: ""
-        }
-    );
-  }, [leaderboardUsersById, selectedLeague]);
   const managedLeagueMembers = useMemo(() => {
     if (!managedLeague) {
       return [];
@@ -1250,19 +1233,19 @@ function App() {
   }, [currentWeekIndex, weeks.length]);
 
   useEffect(() => {
-    if (!authUser) {
+    if (!authUser || leaderboardScope !== "leagues") {
       setSelectedLeagueId(null);
-      return;
-    }
-    if (leaderboardScope !== "leagues") {
       return;
     }
     if (!memberLeagues.length) {
       setSelectedLeagueId(null);
       return;
     }
-    if (!memberLeagues.some((league) => league.id === selectedLeagueId)) {
-      setSelectedLeagueId(memberLeagues[0].id);
+    if (
+      selectedLeagueId &&
+      !memberLeagues.some((league) => league.id === selectedLeagueId)
+    ) {
+      setSelectedLeagueId(null);
     }
   }, [authUser, leaderboardScope, memberLeagues, selectedLeagueId]);
 
@@ -3287,144 +3270,109 @@ function App() {
           </div>
         ) : (
           <div className="leaderboard-card league-card">
-            <div className="league-join">
-              <form className="league-join-form" onSubmit={handleJoinLeague}>
-                <label className="league-join-field">
-                  <span className="league-join-label">Join a league</span>
-                  <input
-                    type="text"
-                    value={joinLeagueCode}
-                    onChange={(event) => setJoinLeagueCode(event.target.value)}
-                    placeholder="Enter code"
-                    disabled={!authUser || leagueBusy}
-                  />
-                </label>
-                <button type="submit" disabled={!authUser || leagueBusy}>
-                  Join
-                </button>
-              </form>
-              <button
-                type="button"
-                className="ghost league-manage-button"
-                onClick={handleOpenLeagueManager}
-                disabled={!authUser || leagueBusy}
-              >
-                Manage or create leagues
-              </button>
-            </div>
-            {!authUser ? (
-              <p className="empty-note">
-                Sign in to create or join a private league.
-              </p>
-            ) : (
+            {!selectedLeague ? (
               <>
+                <div className="league-join">
+                  <form className="league-join-form" onSubmit={handleJoinLeague}>
+                    <label className="league-join-field">
+                      <span className="league-join-label">Join a league</span>
+                      <input
+                        type="text"
+                        value={joinLeagueCode}
+                        onChange={(event) => setJoinLeagueCode(event.target.value)}
+                        placeholder="Enter code"
+                        disabled={!authUser || leagueBusy}
+                      />
+                    </label>
+                    <button type="submit" disabled={!authUser || leagueBusy}>
+                      Join
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    className="ghost league-manage-button"
+                    onClick={handleOpenLeagueManager}
+                    disabled={!authUser || leagueBusy}
+                  >
+                    Manage or create leagues
+                  </button>
+                </div>
                 {leagueError && <p className="notice">{leagueError}</p>}
                 {memberLeagues.length > 0 && (
                   <div className="league-list">
-                    <p className="helper">Your leagues</p>
-                    <div className="league-pills">
+                    <div className="league-rows">
                       {memberLeagues.map((league) => (
                         <button
                           type="button"
                           key={league.id}
-                          className={`league-pill ${
-                            league.id === selectedLeagueId ? "active" : ""
-                          }`}
+                          className="league-row"
                           onClick={() => setSelectedLeagueId(league.id)}
                         >
-                          {league.name}
+                          <span>{league.name}</span>
                         </button>
                       ))}
                     </div>
                   </div>
                 )}
-                {selectedLeague ? (
-                  <div className="league-detail">
-                    <div className="league-detail-header">
-                      <div>
-                        <h3>{selectedLeague.name}</h3>
-                        <p className="helper">
-                          Code:{" "}
-                          {selectedLeague.code ||
-                            (selectedLeague.codeLower || "").toUpperCase()}
-                        </p>
-                      </div>
-                      {renderLeaderboardFilter()}
-                    </div>
-                    <div className="league-leaderboard">
-                      {leagueEntries.length === 0 ? (
-                        <p className="empty-note">No league data yet.</p>
-                      ) : (
-                        <ol className="leaderboard-list">
-                          {leagueEntries.map((entry, index) => (
-                            <li key={entry.id}>
-                              <button
-                                type="button"
-                                className="leaderboard-row"
-                                onClick={() => handleOpenLeaderboardTeam(entry.id)}
-                                aria-label={`View ${entry.name}'s team`}
-                              >
-                                <span className="leaderboard-rank">
-                                  #{index + 1}
-                                </span>
-                                <div className="leaderboard-user">
-                                  <div className="avatar-small">
-                                    {entry.photoURL ? (
-                                      <img src={entry.photoURL} alt={entry.name} />
-                                    ) : (
-                                      <span>{getInitials(entry.name)}</span>
-                                    )}
-                                  </div>
-                                  <div>
-                                    <p className="player-name">{entry.name}</p>
-                                    <p className="player-status">
-                                      {leaderboardEntryLabel || "Total"}
-                                    </p>
-                                  </div>
-                                </div>
-                                <span className="leaderboard-score">
-                                  {entry.points} pts
-                                </span>
-                              </button>
-                            </li>
-                          ))}
-                        </ol>
-                      )}
-                    </div>
-                    <div className="league-members">
-                      <h3>Members</h3>
-                      <ul>
-                        {leagueMembers.map((member) => {
-                          const memberName =
-                            member?.displayName || member?.email || "Player";
-                          const memberPhoto =
-                            member?.avatarUrl || member?.photoURL || "";
-                          return (
-                            <li key={member.id}>
-                              <div className="leaderboard-user">
-                                <div className="avatar-small">
-                                  {memberPhoto ? (
-                                    <img src={memberPhoto} alt={memberName} />
-                                  ) : (
-                                    <span>{getInitials(memberName)}</span>
-                                  )}
-                                </div>
-                                <span>{memberName}</span>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  </div>
-                ) : (
-                  memberLeagues.length > 0 && (
-                    <p className="empty-note">
-                      Select a league to view standings.
-                    </p>
-                  )
-                )}
               </>
+            ) : (
+              <div className="league-detail">
+                <div className="league-detail-header league-detail-header--inline">
+                  <div className="league-detail-title">
+                    <button
+                      type="button"
+                      className="league-back"
+                      onClick={() => {
+                        setSelectedLeagueId(null);
+                        setLeaderboardFilterOpen(false);
+                      }}
+                      aria-label="Back to leagues"
+                    >
+                      <ChevronIcon direction="left" />
+                    </button>
+                    <h3>{selectedLeague.name}</h3>
+                  </div>
+                  {renderLeaderboardFilter()}
+                </div>
+                <div className="league-leaderboard">
+                  {leagueEntries.length === 0 ? (
+                    <p className="empty-note">No league data yet.</p>
+                  ) : (
+                    <ol className="leaderboard-list">
+                      {leagueEntries.map((entry, index) => (
+                        <li key={entry.id}>
+                          <button
+                            type="button"
+                            className="leaderboard-row"
+                            onClick={() => handleOpenLeaderboardTeam(entry.id)}
+                            aria-label={`View ${entry.name}'s team`}
+                          >
+                            <span className="leaderboard-rank">#{index + 1}</span>
+                            <div className="leaderboard-user">
+                              <div className="avatar-small">
+                                {entry.photoURL ? (
+                                  <img src={entry.photoURL} alt={entry.name} />
+                                ) : (
+                                  <span>{getInitials(entry.name)}</span>
+                                )}
+                              </div>
+                              <div>
+                                <p className="player-name">{entry.name}</p>
+                                <p className="player-status">
+                                  {leaderboardEntryLabel || "Total"}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="leaderboard-score">
+                              {entry.points} pts
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}
