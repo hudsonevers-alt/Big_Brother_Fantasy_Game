@@ -924,43 +924,40 @@ h2 {
 .backup-shelf {
   position: relative;
   width: 100%;
-  overflow-x: hidden;
-  overflow-y: visible;
 }
 
-.backup-track {
-  display: flex;
-  transform: translateX(0);
-  transition: transform 0.35s ease;
-  align-items: stretch;
-  will-change: transform;
-}
-
-.backup-track.open {
-  transform: translateX(-75%);
+.backup-main-mask {
+  overflow: hidden;
 }
 
 .backup-main {
-  flex: 0 0 100%;
   min-width: 0;
+  transition: transform 0.35s ease;
+  will-change: transform;
+}
+
+.backup-shelf.open .backup-main {
+  transform: translateX(-75%);
 }
 
 .backup-panel {
-  flex: 0 0 75%;
-  min-width: 0;
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 75%;
   padding-left: 1rem;
   display: flex;
   align-items: center;
-  align-self: stretch;
-  min-height: 100%;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transform: translate(100%, -50%);
+  transition: transform 0.35s ease, opacity 0.2s ease;
 }
 
-.backup-track.open .backup-panel {
+.backup-shelf.open .backup-panel {
   opacity: 1;
   pointer-events: auto;
+  transform: translate(0, -50%);
 }
 
 .backup-panel-card {
@@ -1033,8 +1030,8 @@ h2 {
 }
 
 .backup-select .player-select-menu {
-  width: 100%;
-  min-width: 0;
+  width: min(300px, 90vw);
+  min-width: 240px;
 }
 
 .backup-open-slot {
@@ -1050,9 +1047,10 @@ h2 {
 
 .group-header--backup {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 1rem;
+  width: 100%;
 }
 
 .backup-toggle {
@@ -1068,7 +1066,8 @@ h2 {
   align-items: center;
   justify-content: center;
   align-self: flex-start;
-  margin-top: 0.15rem;
+  margin-top: 0.05rem;
+  justify-self: end;
 }
 
 .backup-toggle:hover {
