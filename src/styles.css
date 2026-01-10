@@ -925,14 +925,18 @@ h2 {
   z-index: 20;
 }
 
+.team-group--menu-open {
+  z-index: 30;
+}
+
 .backup-shelf {
   position: relative;
   width: 100%;
+  overflow: visible;
 }
 
 .backup-main-mask {
-  overflow-x: hidden;
-  overflow-y: visible;
+  overflow: visible;
 }
 
 .backup-main {
@@ -940,7 +944,7 @@ h2 {
   transition: transform 0.35s ease;
   will-change: transform;
   position: relative;
-  z-index: 5;
+  overflow: visible;
 }
 
 .backup-shelf.open .backup-main {
@@ -1747,6 +1751,7 @@ h2 {
   justify-content: center;
   gap: 0.4rem;
   flex-wrap: nowrap;
+  overflow: visible;
 }
 
 .slot-action-button {
@@ -1877,6 +1882,7 @@ h2 {
 .player-select {
   position: relative;
   min-width: 0;
+  overflow: visible;
 }
 
 .player-select-trigger {

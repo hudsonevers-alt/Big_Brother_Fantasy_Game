@@ -645,6 +645,10 @@ function App() {
   const [openSelectSlotId, setOpenSelectSlotId] = useState(null);
   const [backupPanelOpen, setBackupPanelOpen] = useState(null);
   const [backupSelectOpen, setBackupSelectOpen] = useState(null);
+  const [draftBackupPrefs, setDraftBackupPrefs] = useState({
+    hohBackupPlayerId: "",
+    blockBackupPlayerId: ""
+  });
   const [leaderboardMode, setLeaderboardMode] = useState("season");
   const [leaderboardWeekIndex, setLeaderboardWeekIndex] = useState(0);
   const [leaderboardScope, setLeaderboardScope] = useState("global");
@@ -686,6 +690,7 @@ function App() {
   const transferErrorTimeoutRef = useRef(null);
   const swipeStartRef = useRef(null);
   const leaderboardFilterRef = useRef(null);
+  const backupDraftInitRef = useRef(false);
   const playersById = useMemo(
     () => new Map(players.map((player) => [player.id, player])),
     [players]
@@ -1514,11 +1519,19 @@ function App() {
   const hasCommittedTeam = Boolean(userProfile?.hasCommittedTeam);
   const isDrafting = Boolean(authUser && !hasCommittedTeam);
   const isUnlimitedTransfers = isPreseason || isDrafting;
+  const hohBackupPlayerId = userProfile?.hohBackupPlayerId || "";
+  const blockBackupPlayerId = userProfile?.blockBackupPlayerId || "";
+  const backupHistory = userProfile?.backupHistory || {};
   const transferBaseTeam = hasActiveTeam ? activeTeam : savedNextTeam;
   const transfersUsed = isUnlimitedTransfers
     ? 0
     : countTransfers(transferBaseTeam, draftNextTeam);
   const hasDraftChanges = !areTeamsEqual(savedNextTeam, draftNextTeam);
+  const hasBackupDraftChanges =
+    isEditable &&
+    (draftBackupPrefs.hohBackupPlayerId !== hohBackupPlayerId ||
+      draftBackupPrefs.blockBackupPlayerId !== blockBackupPlayerId);
+  const hasPendingChanges = hasDraftChanges || hasBackupDraftChanges;
   const transfersRemaining =
     !authUser
       ? "Sign in"
@@ -1532,9 +1545,6 @@ function App() {
   const profilePhotoUrl = authUser
     ? userProfile?.avatarUrl || authUser.photoURL || ""
     : "";
-  const hohBackupPlayerId = userProfile?.hohBackupPlayerId || "";
-  const blockBackupPlayerId = userProfile?.blockBackupPlayerId || "";
-  const backupHistory = userProfile?.backupHistory || {};
   const activeChatLeague = useMemo(
     () => memberLeagues.find((league) => league.id === selectedChatLeagueId) || null,
     [memberLeagues, selectedChatLeagueId]
@@ -1570,7 +1580,7 @@ function App() {
     }, []);
   }, [draftNextTeam, hasDraftChanges, playersById, savedNextTeam]);
   const canSaveTransfers = Boolean(
-    authUser && nextWeek && hasDraftChanges && isTeamComplete(draftNextTeam)
+    authUser && nextWeek && hasPendingChanges && isTeamComplete(draftNextTeam)
   );
   const visibleTabs = useMemo(
     () => (isAdmin ? tabs : tabs.filter((tab) => tab.id !== "admin")),
@@ -1583,6 +1593,31 @@ function App() {
     Boolean(nextWeek) &&
     !isTeamLocked &&
     Boolean(authUser);
+  useEffect(() => {
+    if (!authUser) {
+      setDraftBackupPrefs({
+        hohBackupPlayerId: "",
+        blockBackupPlayerId: ""
+      });
+      backupDraftInitRef.current = false;
+      return;
+    }
+    if (!isEditable) {
+      setDraftBackupPrefs({
+        hohBackupPlayerId,
+        blockBackupPlayerId
+      });
+      backupDraftInitRef.current = false;
+      return;
+    }
+    if (!backupDraftInitRef.current) {
+      setDraftBackupPrefs({
+        hohBackupPlayerId,
+        blockBackupPlayerId
+      });
+      backupDraftInitRef.current = true;
+    }
+  }, [authUser, blockBackupPlayerId, hohBackupPlayerId, isEditable]);
   const teamHeaderTitle =
     isPreseason || isDrafting
       ? "Create your team"
@@ -2131,7 +2166,8 @@ function App() {
     }
     if (
       playerId &&
-      (playerId === hohBackupPlayerId || playerId === blockBackupPlayerId)
+      (playerId === draftBackupPrefs.hohBackupPlayerId ||
+        playerId === draftBackupPrefs.blockBackupPlayerId)
     ) {
       setTransferError("Backup player must be different from starters.");
       return;
@@ -2159,46 +2195,25 @@ function App() {
     if (!isEditable || !authUser) {
       return;
     }
-    const previousBackupPrefs = {
-      hohBackupPlayerId,
-      blockBackupPlayerId
-    };
     const otherBackup =
-      groupId === "hoh" ? blockBackupPlayerId : hohBackupPlayerId;
+      groupId === "hoh"
+        ? draftBackupPrefs.blockBackupPlayerId
+        : draftBackupPrefs.hohBackupPlayerId;
     if (playerId && playerId === otherBackup) {
+      setTransferError("Backup players must be different.");
       return;
     }
     if (playerId) {
       const starterIds = new Set(Object.values(draftNextTeam).filter(Boolean));
       if (starterIds.has(playerId)) {
+        setTransferError("Backup player must be different from starters.");
         return;
       }
     }
-    const patch =
-      groupId === "hoh"
-        ? { hohBackupPlayerId: playerId }
-        : { blockBackupPlayerId: playerId };
-    let nextBackupHistory = userProfile?.backupHistory || {};
-    let historyChanged = false;
-    if (Number.isFinite(currentWeekIndex)) {
-      const lockedWeeks = getLockedTeamWeeks(userTeams, currentWeekIndex);
-      lockedWeeks.forEach((week) => {
-        if (!nextBackupHistory?.[week]) {
-          if (!historyChanged) {
-            nextBackupHistory = { ...nextBackupHistory };
-            historyChanged = true;
-          }
-          nextBackupHistory[week] = previousBackupPrefs;
-        }
-      });
-    }
-    const nextPatch = historyChanged
-      ? { ...patch, backupHistory: nextBackupHistory }
-      : patch;
-    setUserProfile((prev) => (prev ? { ...prev, ...nextPatch } : prev));
-    updateUserDoc(nextPatch).catch(() => {
-      setAuthError("Unable to update backup player.");
-    });
+    setTransferError("");
+    const key =
+      groupId === "hoh" ? "hohBackupPlayerId" : "blockBackupPlayerId";
+    setDraftBackupPrefs((prev) => ({ ...prev, [key]: playerId }));
   };
 
   const handleToggleBackupPanel = (groupId) => {
@@ -2216,6 +2231,10 @@ function App() {
 
   const handleResetDraft = () => {
     setTransferError("");
+    setDraftBackupPrefs({
+      hohBackupPlayerId,
+      blockBackupPlayerId
+    });
     setDraftTeams((prev) => {
       if (!prev[nextWeekIndex]) {
         return prev;
@@ -2239,19 +2258,38 @@ function App() {
     }
     const updated = { ...draftNextTeam };
     const nextTeams = { ...userTeams, [nextWeekIndex]: updated };
-    const nextBackupHistory = {
-      ...backupHistory,
-      [nextWeekIndex]: {
-        hohBackupPlayerId,
-        blockBackupPlayerId
-      }
+    const currentBackupPrefs = {
+      hohBackupPlayerId,
+      blockBackupPlayerId
+    };
+    const nextBackupPrefs = {
+      hohBackupPlayerId: draftBackupPrefs.hohBackupPlayerId,
+      blockBackupPlayerId: draftBackupPrefs.blockBackupPlayerId
+    };
+    let nextBackupHistory = { ...backupHistory };
+    if (Number.isFinite(currentWeekIndex)) {
+      const lockedWeeks = getLockedTeamWeeks(userTeams, currentWeekIndex);
+      lockedWeeks.forEach((week) => {
+        if (!nextBackupHistory?.[week]) {
+          nextBackupHistory[week] = currentBackupPrefs;
+        }
+      });
+    }
+    nextBackupHistory = {
+      ...nextBackupHistory,
+      [nextWeekIndex]: nextBackupPrefs
     };
     try {
-      await updateUserDoc({ teams: nextTeams, backupHistory: nextBackupHistory });
+      await updateUserDoc({
+        teams: nextTeams,
+        backupHistory: nextBackupHistory,
+        ...nextBackupPrefs
+      });
       setUserTeams(nextTeams);
       setUserProfile((prev) =>
-        prev ? { ...prev, backupHistory: nextBackupHistory } : prev
+        prev ? { ...prev, ...nextBackupPrefs, backupHistory: nextBackupHistory } : prev
       );
+      setDraftBackupPrefs(nextBackupPrefs);
       setDraftTeams((prev) => {
         if (!prev[nextWeekIndex]) {
           return prev;
@@ -2272,26 +2310,42 @@ function App() {
       return;
     }
     const nextTeams = { ...userTeams, [nextWeekIndex]: draftNextTeam };
-    const nextBackupHistory = {
-      ...backupHistory,
-      [nextWeekIndex]: {
-        hohBackupPlayerId,
-        blockBackupPlayerId
-      }
+    const currentBackupPrefs = {
+      hohBackupPlayerId,
+      blockBackupPlayerId
+    };
+    const nextBackupPrefs = {
+      hohBackupPlayerId: draftBackupPrefs.hohBackupPlayerId,
+      blockBackupPlayerId: draftBackupPrefs.blockBackupPlayerId
+    };
+    let nextBackupHistory = { ...backupHistory };
+    if (Number.isFinite(currentWeekIndex)) {
+      const lockedWeeks = getLockedTeamWeeks(userTeams, currentWeekIndex);
+      lockedWeeks.forEach((week) => {
+        if (!nextBackupHistory?.[week]) {
+          nextBackupHistory[week] = currentBackupPrefs;
+        }
+      });
+    }
+    nextBackupHistory = {
+      ...nextBackupHistory,
+      [nextWeekIndex]: nextBackupPrefs
     };
     const patch = {
       teams: nextTeams,
       hasCommittedTeam: true,
       preseasonLocked: false,
-      backupHistory: nextBackupHistory
+      backupHistory: nextBackupHistory,
+      ...nextBackupPrefs
     };
     updateUserDoc(patch).catch(() => {
       setAuthError("Unable to save your team.");
     });
     setUserTeams(nextTeams);
     setUserProfile((prev) =>
-      prev ? { ...prev, backupHistory: nextBackupHistory } : prev
+      prev ? { ...prev, ...nextBackupPrefs, backupHistory: nextBackupHistory } : prev
     );
+    setDraftBackupPrefs(nextBackupPrefs);
     setPreseasonLocked(false);
     setDraftTeams((prev) => {
       if (!prev[nextWeekIndex]) {
@@ -3274,11 +3328,11 @@ function App() {
         )
       : new Set();
     if (isEditable) {
-      [hohBackupPlayerId, blockBackupPlayerId].forEach((backupId) => {
-        if (backupId) {
+      [draftBackupPrefs.hohBackupPlayerId, draftBackupPrefs.blockBackupPlayerId]
+        .filter(Boolean)
+        .forEach((backupId) => {
           selectedIds.add(backupId);
-        }
-      });
+        });
     }
     const isMenuOpen = openSelectSlotId === slot.id;
     const handleToggleMenu = () => {
@@ -4554,10 +4608,17 @@ function App() {
                 ? isPlayerInactiveForWeek(breakdownPlayer, displayedWeekIndex)
                 : false;
               const isBackupOpen = backupPanelOpen === group.id;
+              const activeBackupPrefs = isEditable
+                ? draftBackupPrefs
+                : { hohBackupPlayerId, blockBackupPlayerId };
               const backupId =
-                group.id === "hoh" ? hohBackupPlayerId : blockBackupPlayerId;
+                group.id === "hoh"
+                  ? activeBackupPrefs.hohBackupPlayerId
+                  : activeBackupPrefs.blockBackupPlayerId;
               const otherBackupId =
-                group.id === "hoh" ? blockBackupPlayerId : hohBackupPlayerId;
+                group.id === "hoh"
+                  ? activeBackupPrefs.blockBackupPlayerId
+                  : activeBackupPrefs.hohBackupPlayerId;
               const backupPlayer = backupId ? playersById.get(backupId) : null;
               const backupMenuOpen = backupSelectOpen === group.id;
               const backupStarterIds = isEditable
@@ -4566,12 +4627,18 @@ function App() {
               const backupDisabledIds = new Set(
                 [...backupStarterIds, otherBackupId].filter(Boolean)
               );
+              const isGroupMenuOpen =
+                backupMenuOpen ||
+                Boolean(
+                  openSelectSlotId &&
+                    group.slots.some((slot) => slot.id === openSelectSlotId)
+                );
 
               return (
                 <section
                   className={`team-group ${
                     isBackupOpen ? "team-group--backup-open" : ""
-                  }`}
+                  } ${isGroupMenuOpen ? "team-group--menu-open" : ""}`}
                   key={group.id}
                 >
                   <div
@@ -4629,106 +4696,119 @@ function App() {
                               {backupPlayer ? backupPlayer.name : "Open slot"}
                             </p>
                           </div>
-                          <div className="slot-actions">
-                            <div className="player-select backup-select">
+                          {isEditable && (
+                            <div className="slot-actions">
+                              <div className="player-select backup-select">
+                                <button
+                                  type="button"
+                                  className="slot-action-button"
+                                  onClick={() =>
+                                    handleToggleBackupSelect(group.id)
+                                  }
+                                  aria-expanded={backupMenuOpen}
+                                  aria-label={
+                                    backupId ? "Change backup" : "Select backup"
+                                  }
+                                  title={
+                                    backupId ? "Change backup" : "Select backup"
+                                  }
+                                >
+                                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                      d="M4 7h11m0 0-3-3m3 3-3 3M20 17H9m0 0 3-3m-3 3 3 3"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                </button>
+                                {backupMenuOpen && (
+                                  <div className="player-select-menu backup-select-menu">
+                                    <button
+                                      type="button"
+                                      className="player-option"
+                                      onClick={() => {
+                                        handleBackupChange(group.id, "");
+                                        setBackupSelectOpen(null);
+                                      }}
+                                    >
+                                      <span className="avatar-small backup-open-slot">
+                                        +
+                                      </span>
+                                      <span>Open slot</span>
+                                    </button>
+                                    {sortedPlayers.length === 0 && (
+                                      <p className="empty-note">
+                                        No players available.
+                                      </p>
+                                    )}
+                                    {sortedPlayers.map((option) => {
+                                      const disabled =
+                                        backupDisabledIds.has(option.id) ||
+                                        option.isEvicted;
+                                      return (
+                                        <button
+                                          type="button"
+                                          key={option.id}
+                                          className={`player-option ${
+                                            disabled ? "disabled" : ""
+                                          }`}
+                                          onClick={() => {
+                                            handleBackupChange(
+                                              group.id,
+                                              option.id
+                                            );
+                                            setBackupSelectOpen(null);
+                                          }}
+                                          disabled={disabled}
+                                        >
+                                          <span className="avatar-small">
+                                            {option.photo ? (
+                                              <img
+                                                src={option.photo}
+                                                alt={option.name}
+                                              />
+                                            ) : (
+                                              <span>
+                                                {getInitials(option.name)}
+                                              </span>
+                                            )}
+                                          </span>
+                                          <span>{option.name}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                               <button
                                 type="button"
-                                className="slot-action-button"
-                                onClick={() => handleToggleBackupSelect(group.id)}
-                                aria-expanded={backupMenuOpen}
-                                aria-label={
-                                  backupId ? "Change backup" : "Select backup"
-                                }
-                                title={backupId ? "Change backup" : "Select backup"}
-                                disabled={!isEditable}
+                                className="slot-action-button danger"
+                                onClick={() => handleBackupChange(group.id, "")}
+                                disabled={!backupId}
+                                aria-label="Remove backup"
+                                title="Remove backup"
                               >
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
                                   <path
-                                    d="M4 7h11m0 0-3-3m3 3-3 3M20 17H9m0 0 3-3m-3 3 3 3"
+                                    d="M6 6l12 12M18 6l-12 12"
                                     fill="none"
                                     stroke="currentColor"
-                                    strokeWidth="2"
+                                    strokeWidth="2.5"
                                     strokeLinecap="round"
-                                    strokeLinejoin="round"
                                   />
                                 </svg>
                               </button>
-                              {backupMenuOpen && (
-                                <div className="player-select-menu backup-select-menu">
-                                  <button
-                                    type="button"
-                                    className="player-option"
-                                    onClick={() => {
-                                      handleBackupChange(group.id, "");
-                                      setBackupSelectOpen(null);
-                                    }}
-                                  >
-                                    <span className="avatar-small backup-open-slot">
-                                      +
-                                    </span>
-                                    <span>Open slot</span>
-                                  </button>
-                                  {sortedPlayers.length === 0 && (
-                                    <p className="empty-note">
-                                      No players available.
-                                    </p>
-                                  )}
-                                  {sortedPlayers.map((option) => {
-                                    const disabled =
-                                      backupDisabledIds.has(option.id) ||
-                                      option.isEvicted;
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={option.id}
-                                        className={`player-option ${
-                                          disabled ? "disabled" : ""
-                                        }`}
-                                        onClick={() => {
-                                          handleBackupChange(group.id, option.id);
-                                          setBackupSelectOpen(null);
-                                        }}
-                                        disabled={disabled}
-                                      >
-                                        <span className="avatar-small">
-                                          {option.photo ? (
-                                            <img
-                                              src={option.photo}
-                                              alt={option.name}
-                                            />
-                                          ) : (
-                                            <span>{getInitials(option.name)}</span>
-                                          )}
-                                        </span>
-                                        <span>{option.name}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              )}
                             </div>
-                            <button
-                              type="button"
-                              className="slot-action-button danger"
-                              onClick={() => handleBackupChange(group.id, "")}
-                              disabled={!backupId || !isEditable}
-                              aria-label="Remove backup"
-                              title="Remove backup"
-                            >
-                              <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path
-                                  d="M6 6l12 12M18 6l-12 12"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2.5"
-                                  strokeLinecap="round"
-                                />
-                              </svg>
-                            </button>
-                          </div>
+                          )}
                         </article>
                         <p className="backup-note">
                           Changing this player won&#39;t use a transfer.
+                        </p>
+                        <p className="backup-note">
+                          Will cost 1 point if your backup player comes on.
                         </p>
                       </div>
                     </aside>
@@ -4799,7 +4879,7 @@ function App() {
                   type="button"
                   className="ghost"
                   onClick={handleResetDraft}
-                  disabled={!hasDraftChanges}
+                  disabled={!hasPendingChanges}
                 >
                   Reset
                 </button>
