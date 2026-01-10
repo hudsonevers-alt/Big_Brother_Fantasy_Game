@@ -162,6 +162,7 @@ const tabs = [
   { id: "boards", label: "Boards" },
   { id: "admin", label: "Admin" }
 ];
+const swipeTabs = ["chat", "team", "boards"];
 
 const createEmptyTeam = () =>
   rosterSlots.reduce((acc, slot) => {
@@ -221,6 +222,48 @@ const formatCountdown = (ms) => {
 };
 
 const formatSignedPoints = (value) => `${value > 0 ? "+" : ""}${value} pts`;
+
+const ChevronIcon = ({ direction = "right" }) => (
+  <svg
+    className={`icon icon-chevron icon-chevron--${direction}`}
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      d="M8 5l8 7-8 7"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg className="icon icon-close" viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M6 6l12 12M18 6l-12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const SwapArrowIcon = () => (
+  <svg className="icon icon-swap" viewBox="0 0 40 16" aria-hidden="true">
+    <path
+      d="M1 8h30m0 0-4-4m4 4-4 4M39 8H9m0 0 4-4m-4 4 4 4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 const getTimeZoneParts = (date, timeZone) => {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -562,6 +605,8 @@ function App() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [transferConfirmOpen, setTransferConfirmOpen] = useState(false);
   const [breakdownSelection, setBreakdownSelection] = useState(null);
+  const [leaderboardBreakdownSelection, setLeaderboardBreakdownSelection] =
+    useState(null);
   const [openSelectSlotId, setOpenSelectSlotId] = useState(null);
   const [leaderboardMode, setLeaderboardMode] = useState("season");
   const [leaderboardWeekIndex, setLeaderboardWeekIndex] = useState(0);
@@ -597,6 +642,7 @@ function App() {
   const profileInitRef = useRef(false);
   const chatThreadRef = useRef(null);
   const transferErrorTimeoutRef = useRef(null);
+  const swipeStartRef = useRef(null);
   const playersById = useMemo(
     () => new Map(players.map((player) => [player.id, player])),
     [players]
@@ -1515,6 +1561,66 @@ function App() {
   const isLeagueOwner = Boolean(
     authUser && selectedLeague && selectedLeague.ownerId === authUser.uid
   );
+  const isModalOpen =
+    profileModalOpen ||
+    transferConfirmOpen ||
+    Boolean(leaderboardViewUserId) ||
+    Boolean(breakdownSelection) ||
+    Boolean(leaderboardBreakdownSelection);
+
+  const handleTouchStart = useCallback(
+    (event) => {
+      if (isModalOpen || !swipeTabs.includes(activeTab)) {
+        swipeStartRef.current = null;
+        return;
+      }
+      if (event.touches.length !== 1) {
+        swipeStartRef.current = null;
+        return;
+      }
+      const touch = event.touches[0];
+      swipeStartRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        time: Date.now()
+      };
+    },
+    [activeTab, isModalOpen]
+  );
+
+  const handleTouchEnd = useCallback(
+    (event) => {
+      if (isModalOpen || !swipeTabs.includes(activeTab)) {
+        swipeStartRef.current = null;
+        return;
+      }
+      const start = swipeStartRef.current;
+      swipeStartRef.current = null;
+      if (!start || event.changedTouches.length !== 1) {
+        return;
+      }
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - start.x;
+      const deltaY = touch.clientY - start.y;
+      const elapsed = Date.now() - start.time;
+      if (elapsed > 800) {
+        return;
+      }
+      if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) {
+        return;
+      }
+      const currentIndex = swipeTabs.indexOf(activeTab);
+      if (currentIndex === -1) {
+        return;
+      }
+      if (deltaX < 0 && currentIndex < swipeTabs.length - 1) {
+        setActiveTab(swipeTabs[currentIndex + 1]);
+      } else if (deltaX > 0 && currentIndex > 0) {
+        setActiveTab(swipeTabs[currentIndex - 1]);
+      }
+    },
+    [activeTab, isModalOpen]
+  );
 
   useEffect(() => {
     if (!leaderboardViewUser) {
@@ -1530,6 +1636,10 @@ function App() {
       );
     }
   }, [leaderboardViewUser, leaderboardViewWeekIndex, leaderboardViewWeeks]);
+
+  useEffect(() => {
+    setLeaderboardBreakdownSelection(null);
+  }, [leaderboardViewUserId, leaderboardViewWeekIndex]);
 
   const advanceWeek = useCallback(async () => {
     if (!nextWeek || !isAdmin) {
@@ -2410,6 +2520,7 @@ function App() {
 
   const handleCloseLeaderboardTeam = () => {
     setLeaderboardViewUserId(null);
+    setLeaderboardBreakdownSelection(null);
   };
 
   const goToLeaderboardPreviousWeek = () => {
@@ -2436,6 +2547,7 @@ function App() {
   const renderReadOnlySlot = (slot, team, weekIndex) => {
     const playerId = team?.[slot.id];
     const player = playersById.get(playerId);
+    const groupId = slot.group === "HOH Room" ? "hoh" : "block";
     const isEvictedForWeek = isPlayerEvictedForWeek(player, weekIndex);
     const slotPoints = getWeekPointsForPlayer(
       weekEvents,
@@ -2460,13 +2572,28 @@ function App() {
             !
           </span>
         )}
-        <div className="slot-avatar">
-          {player && player.photo ? (
-            <img src={player.photo} alt={player.name} />
-          ) : (
-            <span>{getInitials(player?.name)}</span>
-          )}
-        </div>
+        <button
+          type="button"
+          className="slot-avatar-button"
+          onClick={() => {
+            if (!playerId) {
+              return;
+            }
+            setLeaderboardBreakdownSelection({
+              playerId,
+              groupId
+            });
+          }}
+          disabled={!playerId}
+        >
+          <div className="slot-avatar">
+            {player && player.photo ? (
+              <img src={player.photo} alt={player.name} draggable="false" />
+            ) : (
+              <span>{getInitials(player?.name)}</span>
+            )}
+          </div>
+        </button>
         <div className="slot-info">
           <p className="slot-name">{player ? player.name : "Open slot"}</p>
           <p className={`slot-score ${pointsClass}`}>{slotPoints}</p>
@@ -3039,7 +3166,11 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       <div
         className="app-version"
         title={BUILD_TIME ? `Build ${BUILD_TIME}` : "Build info"}
@@ -3113,7 +3244,7 @@ function App() {
                     onClick={() => setProfileModalOpen(false)}
                     aria-label="Close profile"
                   >
-                    X
+                    <CloseIcon />
                   </button>
                 )}
               </div>
@@ -3176,11 +3307,7 @@ function App() {
             <div className="modal confirm-modal" role="dialog" aria-modal="true">
               <div className="modal-header">
                 <div>
-                  <p className="eyebrow">Confirm transfers</p>
-                  <h2>Save changes</h2>
-                  <p className="page-subtitle">
-                    Review the updates before locking next week&apos;s team.
-                  </p>
+                  <h2 className="confirm-title">Confirm Changes</h2>
                 </div>
                 <button
                   type="button"
@@ -3188,7 +3315,7 @@ function App() {
                   onClick={() => setTransferConfirmOpen(false)}
                   aria-label="Close transfer summary"
                 >
-                  X
+                  <CloseIcon />
                 </button>
               </div>
               <div className="modal-body">
@@ -3228,12 +3355,13 @@ function App() {
                                       {change.slotLabel}
                                     </span>
                                     <div className="transfer-swap">
-                                      <div className="transfer-player">
+                                      <div className="transfer-player from">
                                         <div className="avatar-small">
                                           {fromPlayer?.photo ? (
                                             <img
                                               src={fromPlayer.photo}
                                               alt={fromName}
+                                              draggable="false"
                                             />
                                           ) : (
                                             <span>{getInitials(fromName)}</span>
@@ -3242,25 +3370,16 @@ function App() {
                                         <span>{fromName}</span>
                                       </div>
                                       <span className="transfer-arrow" aria-hidden="true">
-                                        <svg
-                                          viewBox="0 0 24 12"
-                                          role="presentation"
-                                          aria-hidden="true"
-                                        >
-                                          <path
-                                            d="M1 6H21M21 6L17 2M21 6L17 10"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth="1.8"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                          />
-                                        </svg>
+                                        <SwapArrowIcon />
                                       </span>
-                                      <div className="transfer-player">
+                                      <div className="transfer-player to">
                                         <div className="avatar-small">
                                           {toPlayer?.photo ? (
-                                            <img src={toPlayer.photo} alt={toName} />
+                                            <img
+                                              src={toPlayer.photo}
+                                              alt={toName}
+                                              draggable="false"
+                                            />
                                           ) : (
                                             <span>{getInitials(toName)}</span>
                                           )}
@@ -3295,7 +3414,7 @@ function App() {
                   onClick={handleConfirmTransfers}
                   disabled={!canSaveTransfers}
                 >
-                  Confirm save
+                  Confirm changes
                 </button>
               </div>
             </div>
@@ -3306,11 +3425,9 @@ function App() {
               <div className="modal leaderboard-modal" role="dialog" aria-modal="true">
                 <div className="modal-header">
                   <div>
-                    <p className="eyebrow">Team View</p>
-                    <h2>
-                      {leaderboardViewUser.displayName || "Player"}&#39;s lineup
+                    <h2 className="leaderboard-title">
+                      {leaderboardViewUser.displayName || "Player"}&#39;s Team
                     </h2>
-                    <p className="page-subtitle">Locked weeks only.</p>
                   </div>
                   <button
                     type="button"
@@ -3318,63 +3435,165 @@ function App() {
                     onClick={handleCloseLeaderboardTeam}
                     aria-label="Close team view"
                   >
-                    X
+                    <CloseIcon />
                   </button>
                 </div>
                 <div className="modal-body">
-                <div className="leaderboard-week-header">
-                  <div className="week-nav leaderboard-team-nav">
-                    <button
-                      type="button"
-                      onClick={goToLeaderboardPreviousWeek}
-                      disabled={leaderboardViewWeekPosition <= 0}
-                      aria-label="Previous week"
-                    >
-                      <span aria-hidden>{"<"}</span>
-                    </button>
-                    <span className="week-label">{leaderboardViewWeekLabel}</span>
-                    <button
-                      type="button"
-                      onClick={goToLeaderboardNextWeek}
-                      disabled={
-                        leaderboardViewWeekPosition === -1 ||
-                        leaderboardViewWeekPosition >=
-                          leaderboardViewWeeks.length - 1
-                      }
-                      aria-label="Next week"
-                    >
-                      <span aria-hidden>{">"}</span>
-                    </button>
-                  </div>
-                  {leaderboardViewWeeks.length > 0 && (
-                    <span className="group-metric leaderboard-week-points">
-                      points: {leaderboardViewWeekPoints}
-                    </span>
-                  )}
-                </div>
                   {leaderboardViewWeeks.length === 0 ? (
                     <p className="empty-note">No locked weeks yet.</p>
                   ) : (
                     <div className="leaderboard-team-groups">
-                      {rosterGroups.map((group) => (
-                        <section className="team-group" key={`lb-${group.id}`}>
-                          <div className="group-header">
-                            <div className="group-info">
-                              <h2>{group.title}</h2>
-                              <p>{group.description}</p>
-                            </div>
-                          </div>
-                          <div className={`slot-grid slot-grid--${group.id}`}>
-                            {group.slots.map((slot) =>
-                              renderReadOnlySlot(
-                                slot,
-                                leaderboardViewTeam,
-                                leaderboardViewWeekIndex
+                      <div className="team-controls leaderboard-team-controls">
+                        <div className="team-metric">
+                          <span className="team-metric-value">
+                            {leaderboardViewWeekPoints}
+                          </span>
+                        </div>
+                        <div className="week-nav week-nav--slim leaderboard-team-nav">
+                          <button
+                            type="button"
+                            onClick={goToLeaderboardPreviousWeek}
+                            disabled={leaderboardViewWeekPosition <= 0}
+                            aria-label="Previous week"
+                          >
+                            <ChevronIcon direction="left" />
+                          </button>
+                          <span className="week-label">
+                            {leaderboardViewWeekLabel}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={goToLeaderboardNextWeek}
+                            disabled={
+                              leaderboardViewWeekPosition === -1 ||
+                              leaderboardViewWeekPosition >=
+                                leaderboardViewWeeks.length - 1
+                            }
+                            aria-label="Next week"
+                          >
+                            <ChevronIcon direction="right" />
+                          </button>
+                        </div>
+                      </div>
+                      {rosterGroups.map((group) => {
+                        const breakdownPlayer =
+                          leaderboardBreakdownSelection?.groupId === group.id
+                            ? playersById.get(
+                                leaderboardBreakdownSelection.playerId
                               )
+                            : null;
+                        const breakdownEntries = breakdownPlayer
+                          ? buildPlayerBreakdown(
+                              weekEvents,
+                              leaderboardViewWeekIndex,
+                              breakdownPlayer.id,
+                              group.title
+                            )
+                          : [];
+                        const breakdownPoints = breakdownPlayer
+                          ? getWeekPointsForPlayer(
+                              weekEvents,
+                              leaderboardViewWeekIndex,
+                              breakdownPlayer,
+                              group.title
+                            )
+                          : 0;
+                        const breakdownInactive = breakdownPlayer
+                          ? isPlayerInactiveForWeek(
+                              breakdownPlayer,
+                              leaderboardViewWeekIndex
+                            )
+                          : false;
+
+                        return (
+                          <section className="team-group" key={`lb-${group.id}`}>
+                            <div className="group-header">
+                              <div className="group-info">
+                                <h2>{group.title}</h2>
+                                <p>{group.description}</p>
+                              </div>
+                            </div>
+                            <div className={`slot-grid slot-grid--${group.id}`}>
+                              {group.slots.map((slot) =>
+                                renderReadOnlySlot(
+                                  slot,
+                                  leaderboardViewTeam,
+                                  leaderboardViewWeekIndex
+                                )
+                              )}
+                            </div>
+                            {breakdownPlayer && (
+                              <div
+                                className="breakdown-overlay"
+                                onClick={() =>
+                                  setLeaderboardBreakdownSelection(null)
+                                }
+                              >
+                                <div
+                                  className="breakdown-card"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <button
+                                    type="button"
+                                    className="modal-close"
+                                    onClick={() =>
+                                      setLeaderboardBreakdownSelection(null)
+                                    }
+                                    aria-label="Close breakdown"
+                                  >
+                                    <CloseIcon />
+                                  </button>
+                                  <div className="breakdown-header">
+                                    <div className="slot-avatar">
+                                      {breakdownPlayer.photo ? (
+                                        <img
+                                          src={breakdownPlayer.photo}
+                                          alt={breakdownPlayer.name}
+                                          draggable="false"
+                                        />
+                                      ) : (
+                                        <span>
+                                          {getInitials(breakdownPlayer.name)}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <p className="slot-name">
+                                        {breakdownPlayer.name}
+                                      </p>
+                                      <p className="slot-points">
+                                        {formatSignedPoints(breakdownPoints)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="breakdown-body">
+                                    {breakdownInactive ? (
+                                      <p className="empty-note">
+                                        Player evicted, no points this week.
+                                      </p>
+                                    ) : breakdownEntries.length === 0 ? (
+                                      <p className="empty-note">
+                                        No events recorded yet.
+                                      </p>
+                                    ) : (
+                                      <ul className="breakdown-list">
+                                        {breakdownEntries.map((entry) => (
+                                          <li key={entry.label}>
+                                            <span>{entry.label}</span>
+                                            <span>
+                                              {formatSignedPoints(entry.points)}
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
                             )}
-                          </div>
-                        </section>
-                      ))}
+                          </section>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -3444,7 +3663,7 @@ function App() {
                       disabled={displayedWeekIndex <= minViewIndex}
                       aria-label="Previous week"
                     >
-                      <span aria-hidden>{"<"}</span>
+                      <ChevronIcon direction="left" />
                     </button>
                     <span className="week-label">
                       Week {displayedWeekIndex + 1}
@@ -3455,7 +3674,7 @@ function App() {
                       disabled={displayedWeekIndex >= maxViewIndex}
                       aria-label="Next week"
                     >
-                      <span aria-hidden>{">"}</span>
+                      <ChevronIcon direction="right" />
                     </button>
                   </div>
                 </div>
@@ -3512,7 +3731,7 @@ function App() {
                           onClick={() => setBreakdownSelection(null)}
                           aria-label="Close breakdown"
                         >
-                          X
+                          <CloseIcon />
                         </button>
                         <div className="breakdown-header">
                           <div className="slot-avatar">
