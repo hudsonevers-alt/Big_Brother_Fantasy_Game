@@ -1519,6 +1519,12 @@ function App() {
   const hasCommittedTeam = Boolean(userProfile?.hasCommittedTeam);
   const isDrafting = Boolean(authUser && !hasCommittedTeam);
   const isUnlimitedTransfers = isPreseason || isDrafting;
+  const isTeamLocked = !isPreseason && Boolean(preseasonLocked);
+  const isEditable =
+    displayedWeekIndex === nextWeekIndex &&
+    Boolean(nextWeek) &&
+    !isTeamLocked &&
+    Boolean(authUser);
   const hohBackupPlayerId = userProfile?.hohBackupPlayerId || "";
   const blockBackupPlayerId = userProfile?.blockBackupPlayerId || "";
   const backupHistory = userProfile?.backupHistory || {};
@@ -1586,13 +1592,6 @@ function App() {
     () => (isAdmin ? tabs : tabs.filter((tab) => tab.id !== "admin")),
     [isAdmin]
   );
-
-  const isTeamLocked = !isPreseason && Boolean(preseasonLocked);
-  const isEditable =
-    displayedWeekIndex === nextWeekIndex &&
-    Boolean(nextWeek) &&
-    !isTeamLocked &&
-    Boolean(authUser);
   useEffect(() => {
     if (!authUser) {
       setDraftBackupPrefs({
