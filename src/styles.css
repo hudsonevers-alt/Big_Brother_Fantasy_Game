@@ -938,16 +938,16 @@ h2 {
 }
 
 .backup-track.open {
-  transform: translateX(-50%);
+  transform: translateX(-33.333%);
 }
 
 .backup-main {
-  flex: 0 0 100%;
+  flex: 0 0 66.666%;
   min-width: 0;
 }
 
 .backup-panel {
-  flex: 0 0 50%;
+  flex: 0 0 33.333%;
   min-width: 0;
   padding-left: 0.9rem;
   display: flex;
