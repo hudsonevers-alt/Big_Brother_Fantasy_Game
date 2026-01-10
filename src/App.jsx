@@ -611,6 +611,9 @@ function App() {
   const [leaderboardMode, setLeaderboardMode] = useState("season");
   const [leaderboardWeekIndex, setLeaderboardWeekIndex] = useState(0);
   const [leaderboardScope, setLeaderboardScope] = useState("global");
+  const [leaderboardFilterOpen, setLeaderboardFilterOpen] = useState(false);
+  const [leagueManagerOpen, setLeagueManagerOpen] = useState(false);
+  const [managedLeagueId, setManagedLeagueId] = useState(null);
   const [leaderboardUsers, setLeaderboardUsers] = useState([]);
   const [leaderboardViewUserId, setLeaderboardViewUserId] = useState(null);
   const [leaderboardViewWeekIndex, setLeaderboardViewWeekIndex] = useState(0);
@@ -643,6 +646,7 @@ function App() {
   const chatThreadRef = useRef(null);
   const transferErrorTimeoutRef = useRef(null);
   const swipeStartRef = useRef(null);
+  const leaderboardFilterRef = useRef(null);
   const playersById = useMemo(
     () => new Map(players.map((player) => [player.id, player])),
     [players]
@@ -670,6 +674,17 @@ function App() {
       return league.ownerId === userId || memberIds.includes(userId);
     });
   }, [authUser, leagues]);
+  const ownedLeagues = useMemo(() => {
+    if (!authUser) {
+      return [];
+    }
+    const userId = authUser.uid;
+    return leagues.filter((league) => league.ownerId === userId);
+  }, [authUser, leagues]);
+  const managedLeague = useMemo(
+    () => ownedLeagues.find((league) => league.id === managedLeagueId) || null,
+    [managedLeagueId, ownedLeagues]
+  );
   const selectedLeague = useMemo(
     () => leagues.find((league) => league.id === selectedLeagueId) || null,
     [leagues, selectedLeagueId]
@@ -691,6 +706,23 @@ function App() {
         }
     );
   }, [leaderboardUsersById, selectedLeague]);
+  const managedLeagueMembers = useMemo(() => {
+    if (!managedLeague) {
+      return [];
+    }
+    const memberIds = Array.isArray(managedLeague.memberIds)
+      ? managedLeague.memberIds
+      : [];
+    return memberIds.map(
+      (memberId) =>
+        leaderboardUsersById.get(memberId) || {
+          id: memberId,
+          displayName: "Unknown",
+          avatarUrl: "",
+          photoURL: ""
+        }
+    );
+  }, [leaderboardUsersById, managedLeague]);
   const sortedPlayers = useMemo(() => {
     const next = [...players];
     next.sort((a, b) => {
@@ -704,6 +736,28 @@ function App() {
   }, [players]);
   const isAdmin = authUser?.email === ADMIN_EMAIL;
   const seasonRef = useMemo(() => doc(db, "season", "state"), []);
+
+  const closeAllModals = useCallback(() => {
+    setProfileModalOpen(false);
+    setTransferConfirmOpen(false);
+    setLeaderboardViewUserId(null);
+    setBreakdownSelection(null);
+    setLeaderboardBreakdownSelection(null);
+    setOpenSelectSlotId(null);
+    setLeaderboardFilterOpen(false);
+    setLeagueManagerOpen(false);
+  }, []);
+
+  const handleTabChange = useCallback(
+    (nextTab) => {
+      if (nextTab === activeTab) {
+        return;
+      }
+      closeAllModals();
+      setActiveTab(nextTab);
+    },
+    [activeTab, closeAllModals]
+  );
 
   const updateUserDoc = useCallback(
     async (patch) => {
@@ -1152,9 +1206,9 @@ function App() {
 
   useEffect(() => {
     if (!isAdmin && activeTab === "admin") {
-      setActiveTab("team");
+      handleTabChange("team");
     }
-  }, [activeTab, isAdmin]);
+  }, [activeTab, handleTabChange, isAdmin]);
 
   useEffect(() => {
     if (Number.isFinite(currentWeekIndex)) {
@@ -1163,10 +1217,19 @@ function App() {
   }, [currentWeekIndex]);
 
   useEffect(() => {
+    if (!Number.isFinite(currentWeekIndex) && leaderboardMode === "week") {
+      setLeaderboardMode("season");
+    }
+  }, [currentWeekIndex, leaderboardMode]);
+
+  useEffect(() => {
+    const maxIndex = Number.isFinite(currentWeekIndex)
+      ? currentWeekIndex
+      : Math.max(weeks.length - 1, 0);
     setLeaderboardWeekIndex((prev) =>
-      Math.min(prev, Math.max(weeks.length - 1, 0))
+      Math.min(prev, Math.max(maxIndex, 0))
     );
-  }, [weeks.length]);
+  }, [currentWeekIndex, weeks.length]);
 
   useEffect(() => {
     if (!authUser) {
@@ -1190,6 +1253,23 @@ function App() {
   }, [leaderboardScope]);
 
   useEffect(() => {
+    if (!leagueManagerOpen) {
+      return;
+    }
+    if (!ownedLeagues.length) {
+      setManagedLeagueId(null);
+      return;
+    }
+    if (!ownedLeagues.some((league) => league.id === managedLeagueId)) {
+      setManagedLeagueId(ownedLeagues[0].id);
+    }
+  }, [leagueManagerOpen, managedLeagueId, ownedLeagues]);
+
+  useEffect(() => {
+    setLeaderboardFilterOpen(false);
+  }, [leaderboardScope]);
+
+  useEffect(() => {
     if (chatScope !== "leagues") {
       return;
     }
@@ -1205,6 +1285,24 @@ function App() {
   useEffect(() => {
     setChatError("");
   }, [chatScope]);
+
+  useEffect(() => {
+    if (!leaderboardFilterOpen) {
+      return;
+    }
+    const handlePointerDown = (event) => {
+      if (
+        leaderboardFilterRef.current &&
+        !leaderboardFilterRef.current.contains(event.target)
+      ) {
+        setLeaderboardFilterOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [leaderboardFilterOpen]);
 
   useEffect(() => {
     if (!authUser || !userProfile) {
@@ -1544,6 +1642,31 @@ function App() {
     selectedLeague,
     weeks
   ]);
+  const leaderboardFilterOptions = useMemo(() => {
+    const options = [{ label: "total", mode: "season" }];
+    if (!Number.isFinite(currentWeekIndex)) {
+      return options;
+    }
+    for (let index = currentWeekIndex; index >= 0; index -= 1) {
+      const label = weeks[index]?.name || `Week ${index + 1}`;
+      options.push({
+        label,
+        mode: "week",
+        weekIndex: index
+      });
+    }
+    return options;
+  }, [currentWeekIndex, weeks]);
+  const leaderboardFilterWeekLabel = Number.isFinite(leaderboardWeekIndex)
+    ? weeks[leaderboardWeekIndex]?.name ||
+      `Week ${leaderboardWeekIndex + 1}`
+    : "";
+  const leaderboardFilterLabel =
+    leaderboardMode === "season"
+      ? "total"
+      : leaderboardFilterWeekLabel || "total";
+  const leaderboardEntryLabel =
+    leaderboardMode === "season" ? "Total" : leaderboardFilterWeekLabel;
   const leaderboardViewTeam = leaderboardViewUser
     ? leaderboardViewUser.teams?.[leaderboardViewWeekIndex] || emptyTeam
     : emptyTeam;
@@ -1561,12 +1684,17 @@ function App() {
   const isLeagueOwner = Boolean(
     authUser && selectedLeague && selectedLeague.ownerId === authUser.uid
   );
+  const isManagedLeagueOwner = Boolean(
+    authUser && managedLeague && managedLeague.ownerId === authUser.uid
+  );
   const isModalOpen =
     profileModalOpen ||
     transferConfirmOpen ||
     Boolean(leaderboardViewUserId) ||
     Boolean(breakdownSelection) ||
-    Boolean(leaderboardBreakdownSelection);
+    Boolean(leaderboardBreakdownSelection) ||
+    leagueManagerOpen ||
+    leaderboardFilterOpen;
 
   const handleTouchStart = useCallback(
     (event) => {
@@ -1614,12 +1742,12 @@ function App() {
         return;
       }
       if (deltaX < 0 && currentIndex < swipeTabs.length - 1) {
-        setActiveTab(swipeTabs[currentIndex + 1]);
+        handleTabChange(swipeTabs[currentIndex + 1]);
       } else if (deltaX > 0 && currentIndex > 0) {
-        setActiveTab(swipeTabs[currentIndex - 1]);
+        handleTabChange(swipeTabs[currentIndex - 1]);
       }
     },
-    [activeTab, isModalOpen]
+    [activeTab, handleTabChange, isModalOpen]
   );
 
   useEffect(() => {
@@ -2123,6 +2251,60 @@ function App() {
     try {
       await deleteDoc(doc(db, "leagues", selectedLeague.id));
       setSelectedLeagueId(null);
+    } catch (error) {
+      setLeagueError("Unable to delete the league.");
+    } finally {
+      setLeagueBusy(false);
+    }
+  };
+
+  const handleOpenLeagueManager = () => {
+    setLeagueManagerOpen(true);
+  };
+
+  const handleCloseLeagueManager = () => {
+    setLeagueManagerOpen(false);
+  };
+
+  const handleKickManagedLeagueMember = async (memberId) => {
+    if (!managedLeague || !isManagedLeagueOwner || !memberId) {
+      return;
+    }
+    if (memberId === managedLeague.ownerId) {
+      return;
+    }
+    setLeagueError("");
+    setLeagueBusy(true);
+    try {
+      await updateDoc(doc(db, "leagues", managedLeague.id), {
+        memberIds: arrayRemove(memberId),
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      setLeagueError("Unable to remove that member.");
+    } finally {
+      setLeagueBusy(false);
+    }
+  };
+
+  const handleDeleteManagedLeague = async () => {
+    if (!managedLeague || !isManagedLeagueOwner) {
+      return;
+    }
+    const confirmed = window.confirm(
+      "Delete this league? Members will lose access to this leaderboard."
+    );
+    if (!confirmed) {
+      return;
+    }
+    setLeagueError("");
+    setLeagueBusy(true);
+    try {
+      await deleteDoc(doc(db, "leagues", managedLeague.id));
+      if (selectedLeagueId === managedLeague.id) {
+        setSelectedLeagueId(null);
+      }
+      setManagedLeagueId(null);
     } catch (error) {
       setLeagueError("Unable to delete the league.");
     } finally {
@@ -2889,6 +3071,56 @@ function App() {
 
   const renderLeaderboard = () => {
     const isLeagueView = leaderboardScope === "leagues";
+    const renderLeaderboardFilter = () => (
+      <div className="leaderboard-filter" ref={leaderboardFilterRef}>
+        <button
+          type="button"
+          className={`leaderboard-filter-trigger ${
+            leaderboardFilterOpen ? "open" : ""
+          }`}
+          onClick={() => setLeaderboardFilterOpen((prev) => !prev)}
+          aria-haspopup="listbox"
+          aria-expanded={leaderboardFilterOpen}
+        >
+          <span className="leaderboard-filter-label">{leaderboardFilterLabel}</span>
+          <ChevronIcon direction={leaderboardFilterOpen ? "up" : "down"} />
+        </button>
+        {leaderboardFilterOpen && (
+          <div className="leaderboard-filter-menu" role="listbox">
+            {leaderboardFilterOptions.map((option) => {
+              const isSelected =
+                (option.mode === "season" && leaderboardMode === "season") ||
+                (option.mode === "week" &&
+                  leaderboardMode === "week" &&
+                  option.weekIndex === leaderboardWeekIndex);
+              return (
+                <button
+                  type="button"
+                  key={`${option.mode}-${option.weekIndex ?? "total"}`}
+                  className={`leaderboard-filter-option ${
+                    isSelected ? "selected" : ""
+                  }`}
+                  onClick={() => {
+                    if (option.mode === "season") {
+                      setLeaderboardMode("season");
+                    } else {
+                      setLeaderboardMode("week");
+                      setLeaderboardWeekIndex(option.weekIndex ?? 0);
+                    }
+                    setLeaderboardFilterOpen(false);
+                  }}
+                  role="option"
+                  aria-selected={isSelected}
+                >
+                  <span>{option.label}</span>
+                  {isSelected && <span className="leaderboard-filter-dot" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
     return (
       <section className="leaderboard-view">
         <header className="page-header">
@@ -2918,42 +3150,14 @@ function App() {
                 Private leagues
               </button>
             </div>
-            <div className="toggle-group">
-              <button
-                type="button"
-                className={leaderboardMode === "season" ? "accent" : "ghost"}
-                onClick={() => setLeaderboardMode("season")}
-              >
-                Season total
-              </button>
-              <button
-                type="button"
-                className={leaderboardMode === "week" ? "accent" : "ghost"}
-                onClick={() => setLeaderboardMode("week")}
-              >
-                Week view
-              </button>
-            </div>
-            {leaderboardMode === "week" && (
-              <select
-                value={leaderboardWeekIndex}
-                onChange={(event) =>
-                  setLeaderboardWeekIndex(Number(event.target.value))
-                }
-                disabled={weeks.length === 0}
-              >
-                {weeks.map((week, index) => (
-                  <option key={week.id ?? index} value={index}>
-                    {week.name || `Week ${index + 1}`}
-                  </option>
-                ))}
-              </select>
-            )}
           </div>
         </header>
 
         {!isLeagueView ? (
           <div className="leaderboard-card">
+            <div className="leaderboard-card-toolbar">
+              {renderLeaderboardFilter()}
+            </div>
             {leaderboardEntries.length === 0 ? (
               <p className="empty-note">No leaderboard data yet.</p>
             ) : (
@@ -2978,9 +3182,7 @@ function App() {
                         <div>
                           <p className="player-name">{entry.name}</p>
                           <p className="player-status">
-                            {leaderboardMode === "season"
-                              ? "Season total"
-                              : `Week ${leaderboardWeekIndex + 1}`}
+                            {leaderboardEntryLabel || "Total"}
                           </p>
                         </div>
                       </div>
@@ -2993,49 +3195,41 @@ function App() {
           </div>
         ) : (
           <div className="leaderboard-card league-card">
+            <div className="league-join">
+              <form className="league-join-form" onSubmit={handleJoinLeague}>
+                <label className="league-join-field">
+                  <span className="league-join-label">Join a league</span>
+                  <input
+                    type="text"
+                    value={joinLeagueCode}
+                    onChange={(event) => setJoinLeagueCode(event.target.value)}
+                    placeholder="Enter code"
+                    disabled={!authUser || leagueBusy}
+                  />
+                </label>
+                <button type="submit" disabled={!authUser || leagueBusy}>
+                  Join
+                </button>
+              </form>
+              <button
+                type="button"
+                className="ghost league-manage-button"
+                onClick={handleOpenLeagueManager}
+                disabled={!authUser || leagueBusy}
+              >
+                Manage or create leagues
+              </button>
+            </div>
             {!authUser ? (
               <p className="empty-note">
                 Sign in to create or join a private league.
               </p>
             ) : (
               <>
-                <div className="league-actions">
-                  <form className="league-form" onSubmit={handleCreateLeague}>
-                    <label>
-                      Create a league
-                      <input
-                        type="text"
-                        value={newLeagueName}
-                        onChange={(event) => setNewLeagueName(event.target.value)}
-                        placeholder="League name"
-                        maxLength={24}
-                      />
-                    </label>
-                    <button type="submit" disabled={leagueBusy}>
-                      Create
-                    </button>
-                  </form>
-                  <form className="league-form" onSubmit={handleJoinLeague}>
-                    <label>
-                      Join with code
-                      <input
-                        type="text"
-                        value={joinLeagueCode}
-                        onChange={(event) => setJoinLeagueCode(event.target.value)}
-                        placeholder="Enter code"
-                      />
-                    </label>
-                    <button type="submit" disabled={leagueBusy}>
-                      Join
-                    </button>
-                  </form>
-                </div>
                 {leagueError && <p className="notice">{leagueError}</p>}
-                <div className="league-list">
-                  <p className="helper">Your leagues</p>
-                  {memberLeagues.length === 0 ? (
-                    <p className="empty-note">No leagues yet.</p>
-                  ) : (
+                {memberLeagues.length > 0 && (
+                  <div className="league-list">
+                    <p className="helper">Your leagues</p>
                     <div className="league-pills">
                       {memberLeagues.map((league) => (
                         <button
@@ -3050,8 +3244,8 @@ function App() {
                         </button>
                       ))}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
                 {selectedLeague ? (
                   <div className="league-detail">
                     <div className="league-detail-header">
@@ -3063,16 +3257,7 @@ function App() {
                             (selectedLeague.codeLower || "").toUpperCase()}
                         </p>
                       </div>
-                      {isLeagueOwner && (
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={handleDeleteLeague}
-                          disabled={leagueBusy}
-                        >
-                          Delete league
-                        </button>
-                      )}
+                      {renderLeaderboardFilter()}
                     </div>
                     <div className="league-leaderboard">
                       {leagueEntries.length === 0 ? (
@@ -3101,9 +3286,7 @@ function App() {
                                   <div>
                                     <p className="player-name">{entry.name}</p>
                                     <p className="player-status">
-                                      {leaderboardMode === "season"
-                                        ? "Season total"
-                                        : `Week ${leaderboardWeekIndex + 1}`}
+                                      {leaderboardEntryLabel || "Total"}
                                     </p>
                                   </div>
                                 </div>
@@ -3136,16 +3319,6 @@ function App() {
                                 </div>
                                 <span>{memberName}</span>
                               </div>
-                              {isLeagueOwner && member.id !== selectedLeague.ownerId && (
-                                <button
-                                  type="button"
-                                  className="ghost"
-                                  onClick={() => handleKickLeagueMember(member.id)}
-                                  disabled={leagueBusy}
-                                >
-                                  Kick
-                                </button>
-                              )}
                             </li>
                           );
                         })}
@@ -3153,9 +3326,11 @@ function App() {
                     </div>
                   </div>
                 ) : (
-                  <p className="empty-note">
-                    Select a league to view standings.
-                  </p>
+                  memberLeagues.length > 0 && (
+                    <p className="empty-note">
+                      Select a league to view standings.
+                    </p>
+                  )
                 )}
               </>
             )}
@@ -3419,6 +3594,160 @@ function App() {
               </div>
             </div>
           </div>
+          )}
+          {leagueManagerOpen && (
+            <div className="modal-backdrop">
+              <div className="modal league-manager-modal" role="dialog" aria-modal="true">
+                <div className="modal-header">
+                  <div>
+                    <h2 className="leaderboard-title">Manage or create leagues</h2>
+                    <p className="page-subtitle">
+                      Create new leagues and manage the ones you own.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="modal-close"
+                    onClick={handleCloseLeagueManager}
+                    aria-label="Close league manager"
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+                <div className="modal-body">
+                  {!authUser ? (
+                    <p className="empty-note">
+                      Sign in to create or manage private leagues.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="league-manager-grid">
+                        <div className="league-manager-card">
+                          <div className="card-title">
+                            <h3>Create a league</h3>
+                            <p>Set a name and share the invite code.</p>
+                          </div>
+                          <form className="league-form" onSubmit={handleCreateLeague}>
+                            <label>
+                              League name
+                              <input
+                                type="text"
+                                value={newLeagueName}
+                                onChange={(event) =>
+                                  setNewLeagueName(event.target.value)
+                                }
+                                placeholder="League name"
+                                maxLength={24}
+                              />
+                            </label>
+                            <button type="submit" disabled={leagueBusy}>
+                              Create
+                            </button>
+                          </form>
+                        </div>
+                        <div className="league-manager-card">
+                          <div className="card-title">
+                            <h3>Your leagues</h3>
+                            <p>Select a league to manage members.</p>
+                          </div>
+                          {ownedLeagues.length === 0 ? (
+                            <p className="empty-note">No leagues created yet.</p>
+                          ) : (
+                            <div className="league-pills">
+                              {ownedLeagues.map((league) => (
+                                <button
+                                  type="button"
+                                  key={league.id}
+                                  className={`league-pill ${
+                                    league.id === managedLeagueId ? "active" : ""
+                                  }`}
+                                  onClick={() => setManagedLeagueId(league.id)}
+                                >
+                                  {league.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {leagueError && <p className="notice">{leagueError}</p>}
+                      {managedLeague ? (
+                        <div className="league-manager-detail">
+                          <div className="league-detail-header">
+                            <div>
+                              <h3>{managedLeague.name}</h3>
+                              <p className="helper">
+                                Code:{" "}
+                                {managedLeague.code ||
+                                  (managedLeague.codeLower || "").toUpperCase()}
+                              </p>
+                            </div>
+                            {isManagedLeagueOwner && (
+                              <button
+                                type="button"
+                                className="ghost"
+                                onClick={handleDeleteManagedLeague}
+                                disabled={leagueBusy}
+                              >
+                                Delete league
+                              </button>
+                            )}
+                          </div>
+                          <div className="league-members">
+                            <h3>Members</h3>
+                            <ul>
+                              {managedLeagueMembers.map((member) => {
+                                const memberName =
+                                  member?.displayName ||
+                                  member?.email ||
+                                  "Player";
+                                const memberPhoto =
+                                  member?.avatarUrl || member?.photoURL || "";
+                                return (
+                                  <li key={member.id}>
+                                    <div className="leaderboard-user">
+                                      <div className="avatar-small">
+                                        {memberPhoto ? (
+                                          <img src={memberPhoto} alt={memberName} />
+                                        ) : (
+                                          <span>{getInitials(memberName)}</span>
+                                        )}
+                                      </div>
+                                      <span>{memberName}</span>
+                                    </div>
+                                    {isManagedLeagueOwner &&
+                                      member.id !== managedLeague.ownerId && (
+                                        <button
+                                          type="button"
+                                          className="ghost"
+                                          onClick={() =>
+                                            handleKickManagedLeagueMember(
+                                              member.id
+                                            )
+                                          }
+                                          disabled={leagueBusy}
+                                        >
+                                          Kick
+                                        </button>
+                                      )}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        </div>
+                      ) : (
+                        ownedLeagues.length > 0 && (
+                          <p className="empty-note">
+                            Select a league to manage members.
+                          </p>
+                        )
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
           {leaderboardViewUser && (
             <div className="modal-backdrop">
@@ -4228,7 +4557,7 @@ function App() {
             key={tab.id}
             type="button"
             className={`tab-button ${activeTab === tab.id ? "active" : ""}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
           >
             {tab.label}
           </button>
