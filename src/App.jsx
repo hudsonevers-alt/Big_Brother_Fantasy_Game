@@ -2788,13 +2788,14 @@ function App() {
       return;
     }
     const confirmed = window.confirm(
-      "Reset the season to preseason? This clears all user teams, transfers, and weekly events."
+      "Reset the season to preseason? This clears all user teams, transfers, backups, evictions, and weekly events."
     );
     if (!confirmed) {
       return;
     }
     try {
       const usersSnapshot = await getDocs(collection(db, "users"));
+      const playersSnapshot = await getDocs(collection(db, "players"));
       const usersToReset = usersSnapshot.docs.map((docSnap) => ({
         id: docSnap.id
       }));
@@ -2821,8 +2822,18 @@ function App() {
             preseasonLocked: false,
             hasCommittedTeam: false,
             lastSeenWeekIndex: -1,
+            hohBackupPlayerId: "",
+            blockBackupPlayerId: "",
+            backupHistory: {},
             updatedAt: serverTimestamp()
           },
+          { merge: true }
+        );
+      });
+      playersSnapshot.docs.forEach((docSnap) => {
+        batch.set(
+          doc(db, "players", docSnap.id),
+          { isEvicted: false, evictedWeekIndex: null },
           { merge: true }
         );
       });
@@ -2836,6 +2847,31 @@ function App() {
       setDraftTeams({});
       setTransferBank(STARTING_TRANSFERS);
       setPreseasonLocked(false);
+      setDraftBackupPrefs({ hohBackupPlayerId: "", blockBackupPlayerId: "" });
+      setBackupPanelOpen(null);
+      setBackupSelectOpen(null);
+      setPlayers((prev) =>
+        prev.map((player) => ({
+          ...player,
+          isEvicted: false,
+          evictedWeekIndex: null
+        }))
+      );
+      setUserProfile((prev) =>
+        prev
+          ? {
+              ...prev,
+              teams: {},
+              transferBank: STARTING_TRANSFERS,
+              preseasonLocked: false,
+              hasCommittedTeam: false,
+              lastSeenWeekIndex: -1,
+              hohBackupPlayerId: "",
+              blockBackupPlayerId: "",
+              backupHistory: {}
+            }
+          : prev
+      );
     } catch (error) {
       setAuthError("Unable to reset the season.");
     }

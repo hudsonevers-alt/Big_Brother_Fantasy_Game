@@ -936,7 +936,8 @@ h2 {
 }
 
 .backup-main-mask {
-  overflow: visible;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .backup-main {
@@ -1919,6 +1920,12 @@ h2 {
   overflow-y: auto;
   z-index: 35;
   box-shadow: 0 18px 26px rgba(11, 31, 59, 0.18);
+}
+
+.slot-grid--hoh .slot-card:nth-child(2) .player-select-menu,
+.slot-grid--block .slot-card:nth-child(2) .player-select-menu {
+  right: 0;
+  left: auto;
 }
 
 .player-option {
