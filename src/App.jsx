@@ -3443,12 +3443,8 @@ function App() {
                     <p className="empty-note">No locked weeks yet.</p>
                   ) : (
                     <div className="leaderboard-team-groups">
-                      <div className="team-controls leaderboard-team-controls">
-                        <div className="team-metric">
-                          <span className="team-metric-value">
-                            {leaderboardViewWeekPoints}
-                          </span>
-                        </div>
+                      <div className="leaderboard-week-row">
+                        <div className="leaderboard-week-spacer" aria-hidden="true" />
                         <div className="week-nav week-nav--slim leaderboard-team-nav">
                           <button
                             type="button"
@@ -3473,6 +3469,11 @@ function App() {
                           >
                             <ChevronIcon direction="right" />
                           </button>
+                        </div>
+                        <div className="team-metric leaderboard-week-points">
+                          <span className="team-metric-value">
+                            {leaderboardViewWeekPoints}
+                          </span>
                         </div>
                       </div>
                       {rosterGroups.map((group) => {

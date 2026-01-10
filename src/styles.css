@@ -30,7 +30,7 @@
 html,
 body {
   width: 100%;
-  max-width: 100vw;
+  max-width: 100%;
   overflow: hidden;
   height: 100%;
 }
@@ -42,11 +42,12 @@ body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  overflow-x: hidden;
 }
 
 #root {
   width: 100%;
-  max-width: 100vw;
+  max-width: 100%;
   overflow-x: hidden;
   height: 100%;
 }
@@ -58,7 +59,7 @@ body {
   padding-bottom: calc(var(--tab-bar-height) + var(--safe-area-bottom));
   overflow-x: hidden;
   overflow-y: auto;
-  max-width: 100vw;
+  max-width: 100%;
   width: 100%;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: auto;
@@ -113,7 +114,7 @@ body {
 }
 
 .app {
-  max-width: min(1120px, 100vw);
+  max-width: min(1120px, 100%);
   margin: 0 auto;
   padding: 2rem 1.5rem 2rem;
   padding-top: calc(2rem + env(safe-area-inset-top, 0px));
@@ -242,23 +243,46 @@ h2 {
 }
 
 .leaderboard-modal {
-  width: min(1100px, 100%);
-  max-height: min(
-    85vh,
-    calc(100dvh - 3rem - var(--tab-bar-height) - var(--safe-area-bottom))
-  );
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  padding: 0;
   overflow: hidden;
+  overflow-x: hidden;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  border: none;
+  box-shadow: none;
+  background: var(--paper-2);
 }
 
 .leaderboard-modal .modal-body {
   overflow-y: auto;
-  padding-right: 0.5rem;
+  padding: 1.25rem 1.5rem
+    calc(var(--tab-bar-height) + var(--safe-area-bottom) + 1.5rem);
+  padding-right: 1.5rem;
   touch-action: pan-y;
   overscroll-behavior: contain;
+  overflow-x: hidden;
 }
 
 .leaderboard-modal .slot-card {
   touch-action: pan-y;
+}
+
+.leaderboard-modal .modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: calc(1.2rem + env(safe-area-inset-top, 0px)) 1.5rem 1rem;
+  background: rgba(244, 251, 255, 0.97);
+  border-bottom: 1px solid var(--border-1);
+  backdrop-filter: blur(10px);
+  align-items: center;
 }
 
 .leaderboard-title {
@@ -291,36 +315,36 @@ h2 {
   gap: 1.5rem;
 }
 
-.leaderboard-team-controls {
-  margin: 0 auto 0.75rem;
-  width: 100%;
-}
-
-.leaderboard-team-controls .leaderboard-team-nav {
-  margin-bottom: 0;
-}
-
-.leaderboard-week-header {
+.leaderboard-week-row {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  width: 100%;
+}
+
+.leaderboard-week-spacer {
+  height: 1px;
 }
 
 .leaderboard-team-nav {
-  justify-content: center;
-  margin-bottom: 0.5rem;
-}
-
-.leaderboard-week-header .leaderboard-team-nav {
   grid-column: 2;
   justify-self: center;
   margin-bottom: 0;
+  min-width: 0;
 }
 
 .leaderboard-week-points {
   grid-column: 3;
   justify-self: end;
+  min-width: 0;
+  justify-items: end;
+  text-align: right;
+}
+
+.leaderboard-week-points .team-metric-value {
+  font-size: clamp(1.4rem, 3.5vw, 2rem);
 }
 
 .modal-close {
@@ -2010,15 +2034,8 @@ input[type="file"] {
     justify-content: flex-start;
   }
 
-  .leaderboard-week-header {
-    grid-template-columns: 1fr;
-    justify-items: flex-start;
-  }
-
-  .leaderboard-week-header .leaderboard-team-nav,
-  .leaderboard-week-points {
-    grid-column: auto;
-    justify-self: flex-start;
+  .leaderboard-week-row {
+    gap: 0.6rem;
   }
 
   .chat-input {
@@ -2061,6 +2078,21 @@ input[type="file"] {
   .modal {
     border-radius: 20px;
     padding: 1.1rem;
+  }
+
+  .leaderboard-modal {
+    border-radius: 0;
+    padding: 0;
+  }
+
+  .leaderboard-modal .modal-header {
+    padding: calc(1rem + env(safe-area-inset-top, 0px)) 1.2rem 0.9rem;
+  }
+
+  .leaderboard-modal .modal-body {
+    padding: 1rem 1.2rem
+      calc(var(--tab-bar-height) + var(--safe-area-bottom) + 1.2rem);
+    padding-right: 1.2rem;
   }
 
   .slot-card {
