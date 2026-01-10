@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import {
@@ -2015,6 +2016,8 @@ function App() {
     Boolean(leaderboardBreakdownSelection) ||
     leagueManagerOpen ||
     leaderboardFilterOpen;
+  const portalRoot =
+    typeof document === "undefined" ? null : document.body;
 
   const handleTouchStart = useCallback(
     (event) => {
@@ -2225,6 +2228,8 @@ function App() {
     setBackupPanelOpen((prev) => (prev === groupId ? null : groupId));
     setBackupSelectOpen(null);
     setBackupMenuPosition(null);
+    setOpenSelectSlotId(null);
+    setSelectMenuPosition(null);
   };
 
   const handleToggleBackupSelect = (groupId, event) => {
@@ -2905,9 +2910,10 @@ function App() {
       return;
     }
     const playerIds = players.map((player) => player.id);
+    const availableIds = [...playerIds];
+    const evictionMap = new Map();
     const pickRandom = (ids) => ids[Math.floor(Math.random() * ids.length)];
-    const pickUnique = (ids, count) => {
-      const pool = [...ids];
+    const pickUniqueFromPool = (pool, count) => {
       const picks = [];
       while (pool.length > 0 && picks.length < count) {
         const index = Math.floor(Math.random() * pool.length);
@@ -2921,6 +2927,13 @@ function App() {
     weeks.forEach((_, weekIndex) => {
       const isDouble = weekIndex === doubleEvictionWeekIndex;
       const roundsCount = isDouble ? 2 : 1;
+      const evictionCount = Math.min(availableIds.length, roundsCount);
+      const evictedIds = pickUniqueFromPool(availableIds, evictionCount);
+      evictedIds.forEach((playerId) => {
+        if (!evictionMap.has(playerId)) {
+          evictionMap.set(playerId, weekIndex);
+        }
+      });
       const playersForWeek = {};
       for (let roundIndex = 0; roundIndex < roundsCount; roundIndex += 1) {
         const touchedTarget = Math.min(
@@ -2934,7 +2947,7 @@ function App() {
             vetoWinner = pickRandom(playerIds);
           }
         }
-        const touchedIds = pickUnique(playerIds, touchedTarget);
+        const touchedIds = pickUniqueFromPool([...playerIds], touchedTarget);
         const ensurePlayerRounds = (playerId) => {
           if (!playersForWeek[playerId]) {
             playersForWeek[playerId] = { rounds: ensureTwoRounds([]) };
@@ -2950,6 +2963,9 @@ function App() {
         touchedIds.forEach((playerId) => {
           setEvent(playerId, "touchedBlock");
         });
+        if (evictedIds[roundIndex]) {
+          setEvent(evictedIds[roundIndex], "evicted");
+        }
       }
       nextWeekEvents[weekIndex] = {
         doubleEviction: isDouble,
@@ -2957,7 +2973,38 @@ function App() {
       };
     });
     setWeekEvents(nextWeekEvents);
-    updateSeasonDoc({ weekEvents: nextWeekEvents }).catch(() => {
+    setPlayers((prev) =>
+      prev.map((player) => {
+        const evictionWeekIndex = evictionMap.get(player.id);
+        return {
+          ...player,
+          isEvicted: Number.isFinite(evictionWeekIndex),
+          evictedWeekIndex: Number.isFinite(evictionWeekIndex)
+            ? evictionWeekIndex
+            : null
+        };
+      })
+    );
+    const batch = writeBatch(db);
+    batch.set(
+      seasonRef,
+      { weekEvents: nextWeekEvents, updatedAt: serverTimestamp() },
+      { merge: true }
+    );
+    playerIds.forEach((playerId) => {
+      const evictionWeekIndex = evictionMap.get(playerId);
+      batch.set(
+        doc(db, "players", playerId),
+        {
+          isEvicted: Number.isFinite(evictionWeekIndex),
+          evictedWeekIndex: Number.isFinite(evictionWeekIndex)
+            ? evictionWeekIndex
+            : null
+        },
+        { merge: true }
+      );
+    });
+    batch.commit().catch(() => {
       setAuthError("Unable to randomize week events.");
     });
   };
@@ -3332,7 +3379,7 @@ function App() {
     const playerId = team?.[slot.id];
     const player = playersById.get(playerId);
     const groupId = slot.group === "HOH Room" ? "hoh" : "block";
-    const isEvictedForWeek = isPlayerEvictedForWeek(player, weekIndex);
+    const isEvictedForWeek = isPlayerInactiveForWeek(player, weekIndex);
     const isBackupApplied = backupAppliedSlots?.has(slot.id);
     const slotPenalty = isBackupApplied ? BACKUP_PENALTY : 0;
     const slotPoints =
@@ -3391,11 +3438,11 @@ function App() {
     );
   };
 
-  const renderSlotCard = (slot) => {
+  const renderSlotCard = (slot, disableActions = false) => {
     const playerId = viewTeamWithBackups[slot.id];
     const player = playersById.get(playerId);
     const groupId = slot.group === "HOH Room" ? "hoh" : "block";
-    const isEvictedForWeek = isPlayerEvictedForWeek(player, displayedWeekIndex);
+    const isEvictedForWeek = isPlayerInactiveForWeek(player, displayedWeekIndex);
     const isBackupApplied = backupAppliedSlots.has(slot.id);
     const slotPenalty = isBackupApplied ? BACKUP_PENALTY : 0;
     const isSlotChanged =
@@ -3484,6 +3531,7 @@ function App() {
                   aria-expanded={isMenuOpen}
                   aria-label={playerId ? "Change player" : "Select player"}
                   title={playerId ? "Change player" : "Select player"}
+                  disabled={disableActions}
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
@@ -3501,7 +3549,7 @@ function App() {
                 type="button"
                 className="slot-action-button danger"
                 onClick={() => handleRemoveFromSlot(slot.id)}
-                disabled={!playerId}
+                disabled={!playerId || disableActions}
                 aria-label="Remove player"
                 title="Remove player"
               >
@@ -4728,7 +4776,9 @@ function App() {
                           </button>
                         </div>
                         <div className={`slot-grid slot-grid--${group.id}`}>
-                          {group.slots.map((slot) => renderSlotCard(slot))}
+                          {group.slots.map((slot) =>
+                            renderSlotCard(slot, isBackupOpen)
+                          )}
                         </div>
                       </div>
                     </div>
@@ -4821,106 +4871,113 @@ function App() {
                       </div>
                     </aside>
                   </div>
-                  {shouldShowSlotMenu && (
-                    <div
-                      className="player-select-menu player-select-menu--overlay"
-                      style={{
-                        top: selectMenuPosition.top,
-                        left: selectMenuPosition.left,
-                        width: selectMenuPosition.width
-                      }}
-                    >
-                      {sortedPlayers.length === 0 && (
-                        <p className="empty-note">No players available.</p>
-                      )}
-                      {sortedPlayers.map((option) => {
-                        const disabled =
-                          openSlotSelectedIds.has(option.id) ||
-                          option.isEvicted;
-                        return (
-                          <button
-                            type="button"
-                            key={option.id}
-                            className={`player-option ${
-                              disabled ? "disabled" : ""
-                            }`}
-                            onClick={() => {
-                              if (!openSlot) {
-                                return;
-                              }
-                              handleTeamChange(openSlot.id, option.id);
-                              setOpenSelectSlotId(null);
-                              setSelectMenuPosition(null);
-                            }}
-                            disabled={disabled}
-                          >
-                            <span className="avatar-small">
-                              {option.photo ? (
-                                <img src={option.photo} alt={option.name} />
-                              ) : (
-                                <span>{getInitials(option.name)}</span>
-                              )}
-                            </span>
-                            <span>{option.name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {shouldShowBackupMenu && (
-                    <div
-                      className="player-select-menu player-select-menu--overlay backup-select-menu"
-                      style={{
-                        top: backupMenuPosition.top,
-                        left: backupMenuPosition.left,
-                        width: backupMenuPosition.width
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className="player-option"
-                        onClick={() => {
-                          handleBackupChange(group.id, "");
-                          setBackupSelectOpen(null);
-                          setBackupMenuPosition(null);
+                  {shouldShowSlotMenu &&
+                    portalRoot &&
+                    createPortal(
+                      <div
+                        className="player-select-menu player-select-menu--overlay"
+                        style={{
+                          top: selectMenuPosition.top,
+                          left: selectMenuPosition.left,
+                          width: selectMenuPosition.width
                         }}
                       >
-                        <span className="avatar-small backup-open-slot">+</span>
-                        <span>Open slot</span>
-                      </button>
-                      {sortedPlayers.length === 0 && (
-                        <p className="empty-note">No players available.</p>
-                      )}
-                      {sortedPlayers.map((option) => {
-                        const disabled =
-                          backupDisabledIds.has(option.id) || option.isEvicted;
-                        return (
-                          <button
-                            type="button"
-                            key={option.id}
-                            className={`player-option ${
-                              disabled ? "disabled" : ""
-                            }`}
-                            onClick={() => {
-                              handleBackupChange(group.id, option.id);
-                              setBackupSelectOpen(null);
-                              setBackupMenuPosition(null);
-                            }}
-                            disabled={disabled}
-                          >
-                            <span className="avatar-small">
-                              {option.photo ? (
-                                <img src={option.photo} alt={option.name} />
-                              ) : (
-                                <span>{getInitials(option.name)}</span>
-                              )}
-                            </span>
-                            <span>{option.name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                        {sortedPlayers.length === 0 && (
+                          <p className="empty-note">No players available.</p>
+                        )}
+                        {sortedPlayers.map((option) => {
+                          const disabled =
+                            openSlotSelectedIds.has(option.id) ||
+                            option.isEvicted;
+                          return (
+                            <button
+                              type="button"
+                              key={option.id}
+                              className={`player-option ${
+                                disabled ? "disabled" : ""
+                              }`}
+                              onClick={() => {
+                                if (!openSlot) {
+                                  return;
+                                }
+                                handleTeamChange(openSlot.id, option.id);
+                                setOpenSelectSlotId(null);
+                                setSelectMenuPosition(null);
+                              }}
+                              disabled={disabled}
+                            >
+                              <span className="avatar-small">
+                                {option.photo ? (
+                                  <img src={option.photo} alt={option.name} />
+                                ) : (
+                                  <span>{getInitials(option.name)}</span>
+                                )}
+                              </span>
+                              <span>{option.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>,
+                      portalRoot
+                    )}
+                  {shouldShowBackupMenu &&
+                    portalRoot &&
+                    createPortal(
+                      <div
+                        className="player-select-menu player-select-menu--overlay backup-select-menu"
+                        style={{
+                          top: backupMenuPosition.top,
+                          left: backupMenuPosition.left,
+                          width: backupMenuPosition.width
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="player-option"
+                          onClick={() => {
+                            handleBackupChange(group.id, "");
+                            setBackupSelectOpen(null);
+                            setBackupMenuPosition(null);
+                          }}
+                        >
+                          <span className="avatar-small backup-open-slot">+</span>
+                          <span>Open slot</span>
+                        </button>
+                        {sortedPlayers.length === 0 && (
+                          <p className="empty-note">No players available.</p>
+                        )}
+                        {sortedPlayers.map((option) => {
+                          const disabled =
+                            backupDisabledIds.has(option.id) ||
+                            option.isEvicted;
+                          return (
+                            <button
+                              type="button"
+                              key={option.id}
+                              className={`player-option ${
+                                disabled ? "disabled" : ""
+                              }`}
+                              onClick={() => {
+                                handleBackupChange(group.id, option.id);
+                                setBackupSelectOpen(null);
+                                setBackupMenuPosition(null);
+                              }}
+                              disabled={disabled}
+                            >
+                              <span className="avatar-small">
+                                {option.photo ? (
+                                  <img src={option.photo} alt={option.name} />
+                                ) : (
+                                  <span>{getInitials(option.name)}</span>
+                                )}
+                              </span>
+                              <span>{option.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>,
+                      portalRoot
+                    )}
                   {breakdownPlayer && (
                     <div
                       className="breakdown-overlay"
