@@ -4513,43 +4513,55 @@ function App() {
               const backupButtonLabel = backupId ? "Select backup" : "Open slot";
 
               return (
-                <section className="team-group" key={group.id}>
-                  <div
-                    className={`backup-shell ${isBackupOpen ? "open" : ""}`}
-                    data-group={group.id}
-                  >
-                    <div className="backup-main">
-                      <div className="group-header group-header--backup">
-                        <div className="group-info">
-                          <h2>{group.title}</h2>
-                          <p>{group.description}</p>
+                <section className="backup-swap" key={group.id}>
+                  <div className="backup-viewport">
+                    <div
+                      className={`backup-track ${isBackupOpen ? "open" : ""}`}
+                      data-group={group.id}
+                    >
+                      <div
+                        className="team-group backup-card backup-card--main"
+                        aria-hidden={isBackupOpen}
+                      >
+                        <div className="group-header group-header--backup">
+                          <div className="group-info">
+                            <h2>{group.title}</h2>
+                            <p>{group.description}</p>
+                          </div>
+                          <button
+                            type="button"
+                            className="backup-toggle"
+                            onClick={() => handleToggleBackupPanel(group.id)}
+                            aria-expanded={isBackupOpen}
+                            aria-label="Show backup panel"
+                          >
+                            <ChevronIcon direction="right" />
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          className="backup-toggle"
-                          onClick={() => handleToggleBackupPanel(group.id)}
-                          aria-expanded={isBackupOpen}
-                          aria-label={
-                            isBackupOpen
-                              ? "Hide backup panel"
-                              : "Show backup panel"
-                          }
-                        >
-                          <ChevronIcon direction={isBackupOpen ? "left" : "right"} />
-                        </button>
+                        <div className={`slot-grid slot-grid--${group.id}`}>
+                          {group.slots.map((slot) => renderSlotCard(slot))}
+                        </div>
                       </div>
-                      <div className={`slot-grid slot-grid--${group.id}`}>
-                        {group.slots.map((slot) => renderSlotCard(slot))}
-                      </div>
-                    </div>
-                    <aside className="backup-panel" aria-hidden={!isBackupOpen}>
-                      <div className="backup-panel-card">
-                        <div>
-                          <p className="backup-eyebrow">Backup player</p>
-                          <p className="backup-subtitle">
-                            Select a player to come in if one of your players is
-                            inactive.
-                          </p>
+                      <div
+                        className="team-group backup-card backup-card--panel"
+                        aria-hidden={!isBackupOpen}
+                      >
+                        <div className="backup-card-header">
+                          <button
+                            type="button"
+                            className="backup-toggle"
+                            onClick={() => handleToggleBackupPanel(group.id)}
+                            aria-label="Back to team"
+                          >
+                            <ChevronIcon direction="left" />
+                          </button>
+                          <div className="backup-card-title">
+                            <h3 className="backup-title">Backup player</h3>
+                            <p className="backup-subtitle">
+                              Select a player to come in if one of your players
+                              is inactive.
+                            </p>
+                          </div>
                         </div>
                         <div className="backup-current">
                           <span className="backup-label">Current backup</span>
@@ -4648,7 +4660,7 @@ function App() {
                           )}
                         </div>
                       </div>
-                    </aside>
+                    </div>
                   </div>
                   {breakdownPlayer && (
                     <div

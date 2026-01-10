@@ -921,55 +921,67 @@ h2 {
   overflow: visible;
 }
 
-.backup-shell {
-  --backup-panel-width: clamp(180px, 38vw, 260px);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 0;
-  gap: 0;
-  align-items: start;
-  transition: grid-template-columns 0.28s ease, gap 0.28s ease;
+.backup-swap {
+  position: relative;
+  width: 100%;
 }
 
-.backup-shell.open {
-  grid-template-columns: minmax(0, 1fr) var(--backup-panel-width);
+.backup-viewport {
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+.backup-track {
+  display: flex;
+  width: 200%;
+  transform: translateX(0);
+  transition: transform 0.35s ease;
+  align-items: stretch;
+  will-change: transform;
+}
+
+.backup-track.open {
+  transform: translateX(-100%);
+}
+
+.backup-card {
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 0;
+  display: grid;
   gap: 1rem;
 }
 
-.backup-main {
-  min-width: 0;
-}
-
-.backup-panel {
-  overflow: hidden;
+.backup-card--panel {
+  align-content: start;
   opacity: 0;
-  transform: translateX(12px);
   pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.28s ease;
+  transition: opacity 0.2s ease;
 }
 
-.backup-shell.open .backup-panel {
+.backup-track.open .backup-card--panel {
   opacity: 1;
-  transform: translateX(0);
   pointer-events: auto;
 }
 
-.backup-panel-card {
-  background: var(--paper-1);
-  border: 1px solid var(--border-1);
-  border-radius: 22px;
-  padding: 1rem;
-  display: grid;
-  gap: 0.9rem;
-  box-shadow: 0 12px 22px rgba(11, 31, 59, 0.12);
+.backup-track.open .backup-card--main {
+  pointer-events: none;
 }
 
-.backup-eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.2rem;
-  font-size: 0.65rem;
-  color: var(--ink-3);
-  font-weight: 600;
-  margin-bottom: 0.4rem;
+.backup-card-header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.backup-card-title {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.backup-title {
+  font-size: clamp(1.4rem, 2.6vw, 1.7rem);
 }
 
 .backup-subtitle {
@@ -1039,7 +1051,7 @@ h2 {
 
 .group-header--backup {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
 }
@@ -1056,6 +1068,7 @@ h2 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  align-self: flex-start;
 }
 
 .backup-toggle:hover {
@@ -2536,10 +2549,6 @@ input[type="file"] {
 
   .league-detail-header--inline {
     flex-wrap: wrap;
-  }
-
-  .backup-shell {
-    --backup-panel-width: clamp(160px, 45vw, 220px);
   }
 
   .leaderboard-week-row {
