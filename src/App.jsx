@@ -645,6 +645,8 @@ function App() {
   const [openSelectSlotId, setOpenSelectSlotId] = useState(null);
   const [backupPanelOpen, setBackupPanelOpen] = useState(null);
   const [backupSelectOpen, setBackupSelectOpen] = useState(null);
+  const [selectMenuPosition, setSelectMenuPosition] = useState(null);
+  const [backupMenuPosition, setBackupMenuPosition] = useState(null);
   const [draftBackupPrefs, setDraftBackupPrefs] = useState({
     hohBackupPlayerId: "",
     blockBackupPlayerId: ""
@@ -778,8 +780,10 @@ function App() {
     setBreakdownSelection(null);
     setLeaderboardBreakdownSelection(null);
     setOpenSelectSlotId(null);
+    setSelectMenuPosition(null);
     setBackupPanelOpen(null);
     setBackupSelectOpen(null);
+    setBackupMenuPosition(null);
     setLeaderboardFilterOpen(false);
     setLeagueManagerOpen(false);
   }, []);
@@ -1711,7 +1715,9 @@ function App() {
   useEffect(() => {
     if (!isEditable) {
       setOpenSelectSlotId(null);
+      setSelectMenuPosition(null);
       setBackupSelectOpen(null);
+      setBackupMenuPosition(null);
     }
   }, [isEditable]);
 
@@ -2218,14 +2224,22 @@ function App() {
   const handleToggleBackupPanel = (groupId) => {
     setBackupPanelOpen((prev) => (prev === groupId ? null : groupId));
     setBackupSelectOpen(null);
+    setBackupMenuPosition(null);
   };
 
-  const handleToggleBackupSelect = (groupId) => {
+  const handleToggleBackupSelect = (groupId, event) => {
     if (!isEditable) {
       return;
     }
-    setBackupSelectOpen((prev) => (prev === groupId ? null : groupId));
+    const nextOpen = backupSelectOpen === groupId ? null : groupId;
+    setBackupSelectOpen(nextOpen);
+    setBackupMenuPosition(
+      nextOpen && event?.currentTarget
+        ? getMenuPosition(event.currentTarget)
+        : null
+    );
     setOpenSelectSlotId(null);
+    setSelectMenuPosition(null);
   };
 
   const handleResetDraft = () => {
@@ -3251,6 +3265,48 @@ function App() {
     setLeaderboardBreakdownSelection(null);
   };
 
+  const getMenuPosition = useCallback((target) => {
+    if (!target || typeof target.getBoundingClientRect !== "function") {
+      return null;
+    }
+    const rect = target.getBoundingClientRect();
+    const padding = 12;
+    const menuWidth = Math.min(
+      300,
+      Math.max(240, window.innerWidth * 0.9)
+    );
+    const left = Math.min(
+      Math.max(padding, rect.left),
+      window.innerWidth - menuWidth - padding
+    );
+    const top = rect.bottom + 8;
+    return { top, left, width: menuWidth };
+  }, []);
+
+  const getSelectedIdsForSlot = useCallback(
+    (slotId) => {
+      if (!isEditable) {
+        return new Set();
+      }
+      const selected = new Set(
+        rosterSlots
+          .filter((item) => item.id !== slotId)
+          .map((item) => draftNextTeam[item.id])
+          .filter(Boolean)
+      );
+      [
+        draftBackupPrefs.hohBackupPlayerId,
+        draftBackupPrefs.blockBackupPlayerId
+      ]
+        .filter(Boolean)
+        .forEach((backupId) => {
+          selected.add(backupId);
+        });
+      return selected;
+    },
+    [draftBackupPrefs, draftNextTeam, isEditable]
+  );
+
   const goToLeaderboardPreviousWeek = () => {
     if (leaderboardViewWeekPosition <= 0) {
       return;
@@ -3354,28 +3410,17 @@ function App() {
       ) - slotPenalty;
     const pointsClass =
       slotPoints > 0 ? "positive" : slotPoints < 0 ? "negative" : "";
-    const selectedIds = isEditable
-      ? new Set(
-          rosterSlots
-            .filter((item) => item.id !== slot.id)
-            .map((item) => draftNextTeam[item.id])
-            .filter(Boolean)
-        )
-      : new Set();
-    if (isEditable) {
-      [draftBackupPrefs.hohBackupPlayerId, draftBackupPrefs.blockBackupPlayerId]
-        .filter(Boolean)
-        .forEach((backupId) => {
-          selectedIds.add(backupId);
-        });
-    }
     const isMenuOpen = openSelectSlotId === slot.id;
-    const handleToggleMenu = () => {
-      setOpenSelectSlotId((prev) => (prev === slot.id ? null : slot.id));
-    };
-    const handleSelectPlayer = (id) => {
-      handleTeamChange(slot.id, id);
-      setOpenSelectSlotId(null);
+    const handleToggleMenu = (event) => {
+      const nextOpen = isMenuOpen ? null : slot.id;
+      setOpenSelectSlotId(nextOpen);
+      setSelectMenuPosition(
+        nextOpen && event?.currentTarget
+          ? getMenuPosition(event.currentTarget)
+          : null
+      );
+      setBackupSelectOpen(null);
+      setBackupMenuPosition(null);
     };
 
     return (
@@ -3451,37 +3496,6 @@ function App() {
                     />
                   </svg>
                 </button>
-                {isMenuOpen && (
-                  <div className="player-select-menu">
-                    {sortedPlayers.length === 0 && (
-                      <p className="empty-note">No players available.</p>
-                    )}
-                    {sortedPlayers.map((option) => {
-                      const disabled =
-                        selectedIds.has(option.id) || option.isEvicted;
-                      return (
-                        <button
-                          type="button"
-                          key={option.id}
-                          className={`player-option ${
-                            disabled ? "disabled" : ""
-                          }`}
-                          onClick={() => handleSelectPlayer(option.id)}
-                          disabled={disabled}
-                        >
-                          <span className="avatar-small">
-                            {option.photo ? (
-                              <img src={option.photo} alt={option.name} />
-                            ) : (
-                              <span>{getInitials(option.name)}</span>
-                            )}
-                          </span>
-                          <span>{option.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
               <button
                 type="button"
@@ -4668,6 +4682,18 @@ function App() {
                   openSelectSlotId &&
                     group.slots.some((slot) => slot.id === openSelectSlotId)
                 );
+              const openSlot =
+                openSelectSlotId &&
+                group.slots.find((slot) => slot.id === openSelectSlotId);
+              const openSlotSelectedIds = openSlot
+                ? getSelectedIdsForSlot(openSlot.id)
+                : new Set();
+              const shouldShowSlotMenu = Boolean(
+                openSlot && selectMenuPosition
+              );
+              const shouldShowBackupMenu = Boolean(
+                backupMenuOpen && backupMenuPosition
+              );
 
               return (
                 <section
@@ -4706,7 +4732,12 @@ function App() {
                         </div>
                       </div>
                     </div>
-                    <aside className="backup-panel" aria-hidden={!isBackupOpen}>
+                    <aside
+                      className={`backup-panel ${
+                        group.id === "block" ? "backup-panel--block" : ""
+                      }`}
+                      aria-hidden={!isBackupOpen}
+                    >
                       <div className="backup-panel-card">
                         <div className="backup-panel-header">
                           <h3 className="backup-title">Backup player</h3>
@@ -4737,8 +4768,8 @@ function App() {
                                 <button
                                   type="button"
                                   className="slot-action-button"
-                                  onClick={() =>
-                                    handleToggleBackupSelect(group.id)
+                                  onClick={(event) =>
+                                    handleToggleBackupSelect(group.id, event)
                                   }
                                   aria-expanded={backupMenuOpen}
                                   aria-label={
@@ -4759,64 +4790,6 @@ function App() {
                                     />
                                   </svg>
                                 </button>
-                                {backupMenuOpen && (
-                                  <div className="player-select-menu backup-select-menu">
-                                    <button
-                                      type="button"
-                                      className="player-option"
-                                      onClick={() => {
-                                        handleBackupChange(group.id, "");
-                                        setBackupSelectOpen(null);
-                                      }}
-                                    >
-                                      <span className="avatar-small backup-open-slot">
-                                        +
-                                      </span>
-                                      <span>Open slot</span>
-                                    </button>
-                                    {sortedPlayers.length === 0 && (
-                                      <p className="empty-note">
-                                        No players available.
-                                      </p>
-                                    )}
-                                    {sortedPlayers.map((option) => {
-                                      const disabled =
-                                        backupDisabledIds.has(option.id) ||
-                                        option.isEvicted;
-                                      return (
-                                        <button
-                                          type="button"
-                                          key={option.id}
-                                          className={`player-option ${
-                                            disabled ? "disabled" : ""
-                                          }`}
-                                          onClick={() => {
-                                            handleBackupChange(
-                                              group.id,
-                                              option.id
-                                            );
-                                            setBackupSelectOpen(null);
-                                          }}
-                                          disabled={disabled}
-                                        >
-                                          <span className="avatar-small">
-                                            {option.photo ? (
-                                              <img
-                                                src={option.photo}
-                                                alt={option.name}
-                                              />
-                                            ) : (
-                                              <span>
-                                                {getInitials(option.name)}
-                                              </span>
-                                            )}
-                                          </span>
-                                          <span>{option.name}</span>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                )}
                               </div>
                               <button
                                 type="button"
@@ -4848,6 +4821,106 @@ function App() {
                       </div>
                     </aside>
                   </div>
+                  {shouldShowSlotMenu && (
+                    <div
+                      className="player-select-menu player-select-menu--overlay"
+                      style={{
+                        top: selectMenuPosition.top,
+                        left: selectMenuPosition.left,
+                        width: selectMenuPosition.width
+                      }}
+                    >
+                      {sortedPlayers.length === 0 && (
+                        <p className="empty-note">No players available.</p>
+                      )}
+                      {sortedPlayers.map((option) => {
+                        const disabled =
+                          openSlotSelectedIds.has(option.id) ||
+                          option.isEvicted;
+                        return (
+                          <button
+                            type="button"
+                            key={option.id}
+                            className={`player-option ${
+                              disabled ? "disabled" : ""
+                            }`}
+                            onClick={() => {
+                              if (!openSlot) {
+                                return;
+                              }
+                              handleTeamChange(openSlot.id, option.id);
+                              setOpenSelectSlotId(null);
+                              setSelectMenuPosition(null);
+                            }}
+                            disabled={disabled}
+                          >
+                            <span className="avatar-small">
+                              {option.photo ? (
+                                <img src={option.photo} alt={option.name} />
+                              ) : (
+                                <span>{getInitials(option.name)}</span>
+                              )}
+                            </span>
+                            <span>{option.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {shouldShowBackupMenu && (
+                    <div
+                      className="player-select-menu player-select-menu--overlay backup-select-menu"
+                      style={{
+                        top: backupMenuPosition.top,
+                        left: backupMenuPosition.left,
+                        width: backupMenuPosition.width
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="player-option"
+                        onClick={() => {
+                          handleBackupChange(group.id, "");
+                          setBackupSelectOpen(null);
+                          setBackupMenuPosition(null);
+                        }}
+                      >
+                        <span className="avatar-small backup-open-slot">+</span>
+                        <span>Open slot</span>
+                      </button>
+                      {sortedPlayers.length === 0 && (
+                        <p className="empty-note">No players available.</p>
+                      )}
+                      {sortedPlayers.map((option) => {
+                        const disabled =
+                          backupDisabledIds.has(option.id) || option.isEvicted;
+                        return (
+                          <button
+                            type="button"
+                            key={option.id}
+                            className={`player-option ${
+                              disabled ? "disabled" : ""
+                            }`}
+                            onClick={() => {
+                              handleBackupChange(group.id, option.id);
+                              setBackupSelectOpen(null);
+                              setBackupMenuPosition(null);
+                            }}
+                            disabled={disabled}
+                          >
+                            <span className="avatar-small">
+                              {option.photo ? (
+                                <img src={option.photo} alt={option.name} />
+                              ) : (
+                                <span>{getInitials(option.name)}</span>
+                              )}
+                            </span>
+                            <span>{option.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   {breakdownPlayer && (
                     <div
                       className="breakdown-overlay"
