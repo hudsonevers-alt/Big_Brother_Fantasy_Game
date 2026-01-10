@@ -163,6 +163,7 @@ const tabs = [
   { id: "admin", label: "Admin" }
 ];
 const swipeTabs = ["chat", "team", "boards"];
+const SWIPE_TRIGGER_DISTANCE = 80;
 
 const createEmptyTeam = () =>
   rosterSlots.reduce((acc, slot) => {
@@ -588,6 +589,8 @@ const buildPlayerBreakdown = (weekEvents, weekIndex, playerId, group) => {
 function App() {
   const emptyTeam = useMemo(() => createEmptyTeam(), []);
   const [activeTab, setActiveTab] = useState("team");
+  const [tabTransitionDirection, setTabTransitionDirection] = useState("");
+  const [tabTransitionKey, setTabTransitionKey] = useState(0);
   const [players, setPlayers] = useState([]);
   const [avatarOptions, setAvatarOptions] = useState([]);
   const [weeks, setWeeks] = useState([]);
@@ -735,6 +738,13 @@ function App() {
     return next;
   }, [players]);
   const isAdmin = authUser?.email === ADMIN_EMAIL;
+  const tabOrder = useMemo(
+    () =>
+      (isAdmin ? tabs : tabs.filter((tab) => tab.id !== "admin")).map(
+        (tab) => tab.id
+      ),
+    [isAdmin]
+  );
   const seasonRef = useMemo(() => doc(db, "season", "state"), []);
 
   const closeAllModals = useCallback(() => {
@@ -754,9 +764,17 @@ function App() {
         return;
       }
       closeAllModals();
+      const currentIndex = tabOrder.indexOf(activeTab);
+      const nextIndex = tabOrder.indexOf(nextTab);
+      if (currentIndex !== -1 && nextIndex !== -1) {
+        setTabTransitionDirection(nextIndex > currentIndex ? "left" : "right");
+        setTabTransitionKey((prev) => prev + 1);
+      } else {
+        setTabTransitionDirection("");
+      }
       setActiveTab(nextTab);
     },
-    [activeTab, closeAllModals]
+    [activeTab, closeAllModals, tabOrder]
   );
 
   const updateUserDoc = useCallback(
@@ -1734,7 +1752,10 @@ function App() {
       if (elapsed > 800) {
         return;
       }
-      if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) {
+      if (
+        Math.abs(deltaX) < SWIPE_TRIGGER_DISTANCE ||
+        Math.abs(deltaX) < Math.abs(deltaY) * 1.2
+      ) {
         return;
       }
       const currentIndex = swipeTabs.indexOf(activeTab);
@@ -2400,6 +2421,77 @@ function App() {
     } catch (error) {
       setAuthError("Unable to reset the season.");
     }
+  };
+
+  const handleRandomizeEvents = () => {
+    if (!isAdmin) {
+      return;
+    }
+    if (weeks.length === 0 || players.length === 0) {
+      return;
+    }
+    const confirmed = window.confirm(
+      "Randomize week events for all weeks? This will overwrite existing event data."
+    );
+    if (!confirmed) {
+      return;
+    }
+    const playerIds = players.map((player) => player.id);
+    const pickRandom = (ids) => ids[Math.floor(Math.random() * ids.length)];
+    const pickUnique = (ids, count) => {
+      const pool = [...ids];
+      const picks = [];
+      while (pool.length > 0 && picks.length < count) {
+        const index = Math.floor(Math.random() * pool.length);
+        const [picked] = pool.splice(index, 1);
+        picks.push(picked);
+      }
+      return picks;
+    };
+    const doubleEvictionWeekIndex = Math.floor(Math.random() * weeks.length);
+    const nextWeekEvents = {};
+    weeks.forEach((_, weekIndex) => {
+      const isDouble = weekIndex === doubleEvictionWeekIndex;
+      const roundsCount = isDouble ? 2 : 1;
+      const playersForWeek = {};
+      for (let roundIndex = 0; roundIndex < roundsCount; roundIndex += 1) {
+        const touchedTarget = Math.min(
+          playerIds.length,
+          2 + Math.floor(Math.random() * 2)
+        );
+        const hohWinner = pickRandom(playerIds);
+        let vetoWinner = pickRandom(playerIds);
+        if (playerIds.length > 1) {
+          while (vetoWinner === hohWinner) {
+            vetoWinner = pickRandom(playerIds);
+          }
+        }
+        const touchedIds = pickUnique(playerIds, touchedTarget);
+        const ensurePlayerRounds = (playerId) => {
+          if (!playersForWeek[playerId]) {
+            playersForWeek[playerId] = { rounds: ensureTwoRounds([]) };
+          }
+          return playersForWeek[playerId].rounds;
+        };
+        const setEvent = (playerId, field) => {
+          const rounds = ensurePlayerRounds(playerId);
+          rounds[roundIndex] = { ...rounds[roundIndex], [field]: true };
+        };
+        setEvent(hohWinner, "hohWin");
+        setEvent(vetoWinner, "vetoWin");
+        touchedIds.forEach((playerId) => {
+          setEvent(playerId, "touchedBlock");
+        });
+      }
+      nextWeekEvents[weekIndex] = {
+        doubleEviction: isDouble,
+        players: playersForWeek
+      };
+    });
+    setWeekEvents(nextWeekEvents);
+    updateSeasonDoc({ weekEvents: nextWeekEvents }).catch(() => {
+      setAuthError("Unable to randomize week events.");
+    });
   };
 
   const toggleDoubleEviction = (weekIndex) => {
@@ -3127,11 +3219,11 @@ function App() {
           <div>
             <p className="eyebrow">Big Brother Fantasy</p>
             <h1>{isLeagueView ? "Private Leagues" : "Global Leaderboard"}</h1>
-            <p className="page-subtitle">
-              {isLeagueView
-                ? "Create or join leagues to compete with friends."
-                : "Track season totals or drill into a specific week."}
-            </p>
+            {isLeagueView && (
+              <p className="page-subtitle">
+                Create or join leagues to compete with friends.
+              </p>
+            )}
           </div>
           <div className="leaderboard-controls">
             <div className="toggle-group">
@@ -3346,61 +3438,62 @@ function App() {
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      <div
-        className="app-version"
-        title={BUILD_TIME ? `Build ${BUILD_TIME}` : "Build info"}
-      >
-        {VERSION_LABEL}
-      </div>
       <main className="app">
-        <div className="account-bar">
-          <div className="account-card">
-            <div className="account-info">
-              <button
-                type="button"
-                className="avatar-button"
-                onClick={handleOpenProfileModal}
-                disabled={!authUser}
-              >
-                <span className="avatar-small">
-                  {profilePhotoUrl ? (
-                    <img src={profilePhotoUrl} alt={displayName} />
-                  ) : (
-                    <span>{getInitials(displayName)}</span>
-                  )}
-                </span>
-              </button>
-              <div>
-                <p className="account-name">
-                  {authUser ? displayName : "Not signed in"}
-                </p>
-                <p className="account-status">
-                  {authUser
-                    ? authUser.email || "Google account"
-                    : authLoading
-                      ? "Checking session..."
-                      : "Sign in to join the leaderboard."}
-                </p>
-              </div>
-            </div>
-            <div className="account-actions">
-              {authUser ? (
-                <button type="button" className="ghost" onClick={handleSignOut}>
-                  Sign out
-                </button>
-              ) : (
+        <div className="account-stack">
+          <div className="account-bar">
+            <div className="account-card">
+              <div className="account-info">
                 <button
                   type="button"
-                  onClick={handleGoogleSignIn}
-                  disabled={authLoading}
+                  className="avatar-button"
+                  onClick={handleOpenProfileModal}
+                  disabled={!authUser}
                 >
-                  Sign in with Google
+                  <span className="avatar-small">
+                    {profilePhotoUrl ? (
+                      <img src={profilePhotoUrl} alt={displayName} />
+                    ) : (
+                      <span>{getInitials(displayName)}</span>
+                    )}
+                  </span>
                 </button>
-              )}
+                <div>
+                  <p className="account-name">
+                    {authUser ? displayName : "Not signed in"}
+                  </p>
+                  <p className="account-status">
+                    {authUser
+                      ? authUser.email || "Google account"
+                      : authLoading
+                        ? "Checking session..."
+                        : "Sign in to join the leaderboard."}
+                  </p>
+                </div>
+              </div>
+              <div className="account-actions">
+                {authUser ? (
+                  <button type="button" className="ghost" onClick={handleSignOut}>
+                    Sign out
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={authLoading}
+                  >
+                    Sign in with Google
+                  </button>
+                )}
+              </div>
             </div>
           </div>
+          {!authUser && activeTab === "team" && (
+            <p className="notice account-notice">
+              Sign in to save your team and appear on the leaderboard.
+            </p>
+          )}
+          {authError && <p className="notice">{authError}</p>}
         </div>
-        {authError && <p className="notice">{authError}</p>}
         {showProfileModal && (
           <div className="modal-backdrop">
             <div className="modal profile-modal" role="dialog" aria-modal="true">
@@ -3930,6 +4023,12 @@ function App() {
               </div>
             </div>
           )}
+          <div
+            className={`tab-panel ${
+              tabTransitionDirection ? `tab-panel--${tabTransitionDirection}` : ""
+            }`}
+            key={tabTransitionKey}
+          >
           {activeTab === "team" && (
             <section className="team-view">
               <header className="page-header team-header">
@@ -3954,11 +4053,6 @@ function App() {
               </header>
 
               {transferError && <p className="notice">{transferError}</p>}
-              {!authUser && (
-                <p className="notice">
-                  Sign in to save your team and appear on the leaderboard.
-                </p>
-              )}
               {authUser && isDrafting && !isPreseason && nextWeek && (
                 <p className="notice">
                   You missed the start of the season. No worries, you can join for
@@ -4153,7 +4247,15 @@ function App() {
             <header className="page-header">
               <div>
                 <p className="eyebrow">Commissioner Tools</p>
-                <h1>Admin Panel</h1>
+                <div className="admin-title-row">
+                  <h1>Admin Panel</h1>
+                  <span
+                    className="build-tag"
+                    title={BUILD_TIME ? `Build ${BUILD_TIME}` : "Build info"}
+                  >
+                    {VERSION_LABEL}
+                  </span>
+                </div>
                 <p className="page-subtitle">
                   Add houseguests, manage weeks, and advance the season.
                 </p>
@@ -4521,6 +4623,14 @@ function App() {
                   </button>
                   <button
                     type="button"
+                    className="ghost"
+                    onClick={handleRandomizeEvents}
+                    disabled={weeks.length === 0 || players.length === 0}
+                  >
+                    Randomize events
+                  </button>
+                  <button
+                    type="button"
                     className="danger"
                     onClick={handleResetSeason}
                     disabled={weeks.length === 0}
@@ -4544,6 +4654,7 @@ function App() {
             </div>
           </section>
         )}
+        </div>
       </main>
 
       <nav
