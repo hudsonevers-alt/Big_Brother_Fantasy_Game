@@ -88,6 +88,10 @@ const rosterGroups = [
     slots: rosterSlots.filter((slot) => slot.group === "The Block")
   }
 ];
+const backupSlotsByGroup = {
+  hoh: rosterSlots.filter((slot) => slot.group === "HOH Room"),
+  block: rosterSlots.filter((slot) => slot.group === "The Block")
+};
 
 const defaultPlayers = [
   {
@@ -187,6 +191,32 @@ const getLockedTeamWeeks = (teams, maxIndex) => {
     .filter((index) => Number.isFinite(index) && index <= maxIndex)
     .filter((index) => hasAnyPlayer(teams?.[index]))
     .sort((a, b) => a - b);
+};
+
+const getBackupPrefsForWeek = (weekIndex, backupPrefs, backupHistory = {}) => {
+  const entry = backupHistory?.[weekIndex];
+  if (entry) {
+    return {
+      hohBackupPlayerId: entry.hohBackupPlayerId || "",
+      blockBackupPlayerId: entry.blockBackupPlayerId || ""
+    };
+  }
+  return {
+    hohBackupPlayerId: backupPrefs?.hohBackupPlayerId || "",
+    blockBackupPlayerId: backupPrefs?.blockBackupPlayerId || ""
+  };
+};
+
+const getBackupAppliedSlots = (team, resolvedTeam) => {
+  const applied = new Set();
+  rosterSlots.forEach((slot) => {
+    const starterId = team?.[slot.id];
+    const resolvedId = resolvedTeam?.[slot.id];
+    if (starterId && resolvedId && starterId !== resolvedId) {
+      applied.add(slot.id);
+    }
+  });
+  return applied;
 };
 
 const normalizePlayers = (list) =>
@@ -612,6 +642,8 @@ function App() {
   const [leaderboardBreakdownSelection, setLeaderboardBreakdownSelection] =
     useState(null);
   const [openSelectSlotId, setOpenSelectSlotId] = useState(null);
+  const [backupPanelOpen, setBackupPanelOpen] = useState(null);
+  const [backupSelectOpen, setBackupSelectOpen] = useState(null);
   const [leaderboardMode, setLeaderboardMode] = useState("season");
   const [leaderboardWeekIndex, setLeaderboardWeekIndex] = useState(0);
   const [leaderboardScope, setLeaderboardScope] = useState("global");
@@ -740,6 +772,8 @@ function App() {
     setBreakdownSelection(null);
     setLeaderboardBreakdownSelection(null);
     setOpenSelectSlotId(null);
+    setBackupPanelOpen(null);
+    setBackupSelectOpen(null);
     setLeaderboardFilterOpen(false);
     setLeagueManagerOpen(false);
   }, []);
@@ -990,6 +1024,8 @@ function App() {
       setChatError("");
       setSelectedChatLeagueId(null);
       setChatScope("global");
+      setBackupPanelOpen(null);
+      setBackupSelectOpen(null);
       return;
     }
     setUserProfileReady(false);
@@ -1011,6 +1047,9 @@ function App() {
           preseasonLocked: false,
           hasCommittedTeam: false,
           lastSeenWeekIndex: -1,
+          hohBackupPlayerId: "",
+          blockBackupPlayerId: "",
+          backupHistory: {},
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         };
@@ -1102,6 +1141,7 @@ function App() {
       }
       if (!event.target.closest(".player-select")) {
         setOpenSelectSlotId(null);
+        setBackupSelectOpen(null);
       }
     };
     document.addEventListener("click", handleClick);
@@ -1159,7 +1199,52 @@ function App() {
       }
       return next;
     });
-  }, [authUser, players, playersLoaded, updateUserDoc]);
+    const scrubBackup = (value) => (playerIds.has(value) ? value : "");
+    const currentHohBackup = userProfile?.hohBackupPlayerId || "";
+    const currentBlockBackup = userProfile?.blockBackupPlayerId || "";
+    const nextHohBackup = scrubBackup(currentHohBackup);
+    const nextBlockBackup = scrubBackup(currentBlockBackup);
+    const currentBackupHistory = userProfile?.backupHistory || {};
+    let nextBackupHistory = currentBackupHistory;
+    let historyChanged = false;
+    Object.entries(currentBackupHistory).forEach(([weekKey, entry]) => {
+      const nextEntry = {
+        hohBackupPlayerId: scrubBackup(entry?.hohBackupPlayerId || ""),
+        blockBackupPlayerId: scrubBackup(entry?.blockBackupPlayerId || "")
+      };
+      const previousEntry = {
+        hohBackupPlayerId: entry?.hohBackupPlayerId || "",
+        blockBackupPlayerId: entry?.blockBackupPlayerId || ""
+      };
+      if (
+        nextEntry.hohBackupPlayerId !== previousEntry.hohBackupPlayerId ||
+        nextEntry.blockBackupPlayerId !== previousEntry.blockBackupPlayerId
+      ) {
+        if (!historyChanged) {
+          nextBackupHistory = { ...currentBackupHistory };
+          historyChanged = true;
+        }
+        nextBackupHistory[weekKey] = nextEntry;
+      }
+    });
+    const backupPatch = {};
+    if (
+      nextHohBackup !== currentHohBackup ||
+      nextBlockBackup !== currentBlockBackup
+    ) {
+      backupPatch.hohBackupPlayerId = nextHohBackup;
+      backupPatch.blockBackupPlayerId = nextBlockBackup;
+    }
+    if (historyChanged) {
+      backupPatch.backupHistory = nextBackupHistory;
+    }
+    if (Object.keys(backupPatch).length) {
+      updateUserDoc(backupPatch).catch(() => {
+        setAuthError("Unable to sync your backup player.");
+      });
+      setUserProfile((prev) => (prev ? { ...prev, ...backupPatch } : prev));
+    }
+  }, [authUser, players, playersLoaded, updateUserDoc, userProfile]);
 
   const nextWeekIndex = currentWeekIndex === null ? 0 : currentWeekIndex + 1;
   const nextWeek = weeks[nextWeekIndex] || null;
@@ -1446,6 +1531,9 @@ function App() {
   const profilePhotoUrl = authUser
     ? userProfile?.avatarUrl || authUser.photoURL || ""
     : "";
+  const hohBackupPlayerId = userProfile?.hohBackupPlayerId || "";
+  const blockBackupPlayerId = userProfile?.blockBackupPlayerId || "";
+  const backupHistory = userProfile?.backupHistory || {};
   const activeChatLeague = useMemo(
     () => memberLeagues.find((league) => league.id === selectedChatLeagueId) || null,
     [memberLeagues, selectedChatLeagueId]
@@ -1522,10 +1610,70 @@ function App() {
     draftNextTeam,
     userTeams
   ]);
+  const getTeamWithBackups = useCallback(
+    (team, weekIndex, backupPrefs) => {
+      if (!team) {
+        return team;
+      }
+      const hohBackup = backupPrefs?.hohBackupPlayerId || "";
+      const blockBackup = backupPrefs?.blockBackupPlayerId || "";
+      if (!hohBackup && !blockBackup) {
+        return team;
+      }
+      const starterIds = new Set(Object.values(team).filter(Boolean));
+      const nextTeam = { ...team };
+      const applyBackup = (groupId, backupId, otherBackupId) => {
+        if (!backupId || backupId === otherBackupId) {
+          return;
+        }
+        if (starterIds.has(backupId)) {
+          return;
+        }
+        const backupPlayer = playersById.get(backupId);
+        if (!backupPlayer || isPlayerInactiveForWeek(backupPlayer, weekIndex)) {
+          return;
+        }
+        const slotToFill = backupSlotsByGroup[groupId].find((slot) => {
+          const starterId = team?.[slot.id];
+          if (!starterId) {
+            return false;
+          }
+          const starterPlayer = playersById.get(starterId);
+          return isPlayerInactiveForWeek(starterPlayer, weekIndex);
+        });
+        if (!slotToFill) {
+          return;
+        }
+        nextTeam[slotToFill.id] = backupId;
+      };
+      applyBackup("hoh", hohBackup, blockBackup);
+      applyBackup("block", blockBackup, hohBackup);
+      return nextTeam;
+    },
+    [playersById]
+  );
+  const viewBackupPrefs = useMemo(
+    () =>
+      getBackupPrefsForWeek(
+        displayedWeekIndex,
+        { hohBackupPlayerId, blockBackupPlayerId },
+        backupHistory
+      ),
+    [backupHistory, blockBackupPlayerId, displayedWeekIndex, hohBackupPlayerId]
+  );
+  const viewTeamWithBackups = useMemo(
+    () => getTeamWithBackups(viewTeam, displayedWeekIndex, viewBackupPrefs),
+    [displayedWeekIndex, getTeamWithBackups, viewBackupPrefs, viewTeam]
+  );
+  const backupAppliedSlots = useMemo(
+    () => getBackupAppliedSlots(viewTeam, viewTeamWithBackups),
+    [viewTeam, viewTeamWithBackups]
+  );
 
   useEffect(() => {
     if (!isEditable) {
       setOpenSelectSlotId(null);
+      setBackupSelectOpen(null);
     }
   }, [isEditable]);
 
@@ -1542,7 +1690,7 @@ function App() {
   const displayedTeamPoints = useMemo(
     () =>
       rosterSlots.reduce((sum, slot) => {
-        const playerId = viewTeam[slot.id];
+        const playerId = viewTeamWithBackups[slot.id];
         const player = playersById.get(playerId);
         return (
           sum +
@@ -1554,22 +1702,24 @@ function App() {
           )
         );
       }, 0),
-    [displayedWeekIndex, playersById, viewTeam, weekEvents]
+    [displayedWeekIndex, playersById, viewTeamWithBackups, weekEvents]
   );
   const teamMetricValue = isEditable ? transfersRemaining : displayedTeamPoints;
   const teamMetricLabel = isEditable ? "transfers" : "pts";
 
   const getTeamPointsForWeek = useCallback(
-    (team, weekIndex) =>
-      rosterSlots.reduce((sum, slot) => {
-        const playerId = team?.[slot.id];
+    (team, weekIndex, backupPrefs) => {
+      const resolvedTeam = getTeamWithBackups(team, weekIndex, backupPrefs);
+      return rosterSlots.reduce((sum, slot) => {
+        const playerId = resolvedTeam?.[slot.id];
         const player = playersById.get(playerId);
         return (
           sum +
           getWeekPointsForPlayer(weekEvents, weekIndex, player, slot.group)
         );
-      }, 0),
-    [playersById, weekEvents]
+      }, 0);
+    },
+    [getTeamWithBackups, playersById, weekEvents]
   );
 
   const leaderboardEntries = useMemo(() => {
@@ -1586,14 +1736,25 @@ function App() {
     return eligibleUsers
       .map((user) => {
         const teams = user.teams || {};
+        const backupPrefs = {
+          hohBackupPlayerId: user.hohBackupPlayerId || "",
+          blockBackupPlayerId: user.blockBackupPlayerId || ""
+        };
+        const backupHistory = user.backupHistory || {};
         const seasonTotal = weeks.reduce(
           (sum, _week, index) =>
-            sum + getTeamPointsForWeek(teams[index] || emptyTeam, index),
+            sum +
+            getTeamPointsForWeek(
+              teams[index] || emptyTeam,
+              index,
+              getBackupPrefsForWeek(index, backupPrefs, backupHistory)
+            ),
           0
         );
         const weekPoints = getTeamPointsForWeek(
           teams[leaderboardWeekIndex] || emptyTeam,
-          leaderboardWeekIndex
+          leaderboardWeekIndex,
+          getBackupPrefsForWeek(leaderboardWeekIndex, backupPrefs, backupHistory)
         );
         const points = leaderboardMode === "season" ? seasonTotal : weekPoints;
         return {
@@ -1632,14 +1793,25 @@ function App() {
     return eligibleMembers
       .map((user) => {
         const teams = user.teams || {};
+        const backupPrefs = {
+          hohBackupPlayerId: user.hohBackupPlayerId || "",
+          blockBackupPlayerId: user.blockBackupPlayerId || ""
+        };
+        const backupHistory = user.backupHistory || {};
         const seasonTotal = weeks.reduce(
           (sum, _week, index) =>
-            sum + getTeamPointsForWeek(teams[index] || emptyTeam, index),
+            sum +
+            getTeamPointsForWeek(
+              teams[index] || emptyTeam,
+              index,
+              getBackupPrefsForWeek(index, backupPrefs, backupHistory)
+            ),
           0
         );
         const weekPoints = getTeamPointsForWeek(
           teams[leaderboardWeekIndex] || emptyTeam,
-          leaderboardWeekIndex
+          leaderboardWeekIndex,
+          getBackupPrefsForWeek(leaderboardWeekIndex, backupPrefs, backupHistory)
         );
         const points = leaderboardMode === "season" ? seasonTotal : weekPoints;
         return {
@@ -1721,9 +1893,54 @@ function App() {
   const leaderboardViewTeam = leaderboardViewUser
     ? leaderboardViewUser.teams?.[leaderboardViewWeekIndex] || emptyTeam
     : emptyTeam;
+  const leaderboardViewBackupHistory = leaderboardViewUser?.backupHistory || {};
+  const leaderboardViewBackupPrefs = useMemo(
+    () =>
+      getBackupPrefsForWeek(
+        leaderboardViewWeekIndex,
+        {
+          hohBackupPlayerId: leaderboardViewUser?.hohBackupPlayerId || "",
+          blockBackupPlayerId: leaderboardViewUser?.blockBackupPlayerId || ""
+        },
+        leaderboardViewBackupHistory
+      ),
+    [leaderboardViewBackupHistory, leaderboardViewUser, leaderboardViewWeekIndex]
+  );
+  const leaderboardViewTeamWithBackups = useMemo(
+    () =>
+      getTeamWithBackups(
+        leaderboardViewTeam,
+        leaderboardViewWeekIndex,
+        leaderboardViewBackupPrefs
+      ),
+    [
+      getTeamWithBackups,
+      leaderboardViewBackupPrefs,
+      leaderboardViewTeam,
+      leaderboardViewWeekIndex
+    ]
+  );
+  const leaderboardViewBackupAppliedSlots = useMemo(
+    () =>
+      getBackupAppliedSlots(
+        leaderboardViewTeam,
+        leaderboardViewTeamWithBackups
+      ),
+    [leaderboardViewTeam, leaderboardViewTeamWithBackups]
+  );
   const leaderboardViewWeekPoints = useMemo(
-    () => getTeamPointsForWeek(leaderboardViewTeam, leaderboardViewWeekIndex),
-    [getTeamPointsForWeek, leaderboardViewTeam, leaderboardViewWeekIndex]
+    () =>
+      getTeamPointsForWeek(
+        leaderboardViewTeam,
+        leaderboardViewWeekIndex,
+        leaderboardViewBackupPrefs
+      ),
+    [
+      getTeamPointsForWeek,
+      leaderboardViewBackupPrefs,
+      leaderboardViewTeam,
+      leaderboardViewWeekIndex
+    ]
   );
   const leaderboardViewWeekPosition = leaderboardViewWeeks.indexOf(
     leaderboardViewWeekIndex
@@ -1846,14 +2063,30 @@ function App() {
           const teams = data.teams || {};
           const currentTeam = teams[currentWeekIndex];
           const nextTeam = teams[nextWeekIndex];
+          const backupHistory = data.backupHistory || {};
+          const hasBackupEntry = Boolean(backupHistory?.[nextWeekIndex]);
+          const nextBackupEntry = {
+            hohBackupPlayerId: data.hohBackupPlayerId || "",
+            blockBackupPlayerId: data.blockBackupPlayerId || ""
+          };
+          const patch = {};
           if (hasAnyPlayer(currentTeam) && !hasAnyPlayer(nextTeam)) {
+            patch.teams = {
+              ...teams,
+              [nextWeekIndex]: currentTeam
+            };
+          }
+          if (!hasBackupEntry) {
+            patch.backupHistory = {
+              ...backupHistory,
+              [nextWeekIndex]: nextBackupEntry
+            };
+          }
+          if (Object.keys(patch).length) {
             batch.set(
               doc(db, "users", docSnap.id),
               {
-                teams: {
-                  ...teams,
-                  [nextWeekIndex]: currentTeam
-                },
+                ...patch,
                 updatedAt: serverTimestamp()
               },
               { merge: true }
@@ -1903,6 +2136,65 @@ function App() {
     handleTeamChange(slotId, "");
   };
 
+  const handleBackupChange = (groupId, playerId) => {
+    if (!isEditable || !authUser) {
+      return;
+    }
+    const previousBackupPrefs = {
+      hohBackupPlayerId,
+      blockBackupPlayerId
+    };
+    const otherBackup =
+      groupId === "hoh" ? blockBackupPlayerId : hohBackupPlayerId;
+    if (playerId && playerId === otherBackup) {
+      return;
+    }
+    if (playerId) {
+      const starterIds = new Set(Object.values(draftNextTeam).filter(Boolean));
+      if (starterIds.has(playerId)) {
+        return;
+      }
+    }
+    const patch =
+      groupId === "hoh"
+        ? { hohBackupPlayerId: playerId }
+        : { blockBackupPlayerId: playerId };
+    let nextBackupHistory = userProfile?.backupHistory || {};
+    let historyChanged = false;
+    if (Number.isFinite(currentWeekIndex)) {
+      const lockedWeeks = getLockedTeamWeeks(userTeams, currentWeekIndex);
+      lockedWeeks.forEach((week) => {
+        if (!nextBackupHistory?.[week]) {
+          if (!historyChanged) {
+            nextBackupHistory = { ...nextBackupHistory };
+            historyChanged = true;
+          }
+          nextBackupHistory[week] = previousBackupPrefs;
+        }
+      });
+    }
+    const nextPatch = historyChanged
+      ? { ...patch, backupHistory: nextBackupHistory }
+      : patch;
+    setUserProfile((prev) => (prev ? { ...prev, ...nextPatch } : prev));
+    updateUserDoc(nextPatch).catch(() => {
+      setAuthError("Unable to update backup player.");
+    });
+  };
+
+  const handleToggleBackupPanel = (groupId) => {
+    setBackupPanelOpen((prev) => (prev === groupId ? null : groupId));
+    setBackupSelectOpen(null);
+  };
+
+  const handleToggleBackupSelect = (groupId) => {
+    if (!isEditable) {
+      return;
+    }
+    setBackupSelectOpen((prev) => (prev === groupId ? null : groupId));
+    setOpenSelectSlotId(null);
+  };
+
   const handleResetDraft = () => {
     setTransferError("");
     setDraftTeams((prev) => {
@@ -1928,9 +2220,19 @@ function App() {
     }
     const updated = { ...draftNextTeam };
     const nextTeams = { ...userTeams, [nextWeekIndex]: updated };
+    const nextBackupHistory = {
+      ...backupHistory,
+      [nextWeekIndex]: {
+        hohBackupPlayerId,
+        blockBackupPlayerId
+      }
+    };
     try {
-      await updateUserDoc({ teams: nextTeams });
+      await updateUserDoc({ teams: nextTeams, backupHistory: nextBackupHistory });
       setUserTeams(nextTeams);
+      setUserProfile((prev) =>
+        prev ? { ...prev, backupHistory: nextBackupHistory } : prev
+      );
       setDraftTeams((prev) => {
         if (!prev[nextWeekIndex]) {
           return prev;
@@ -1951,15 +2253,26 @@ function App() {
       return;
     }
     const nextTeams = { ...userTeams, [nextWeekIndex]: draftNextTeam };
+    const nextBackupHistory = {
+      ...backupHistory,
+      [nextWeekIndex]: {
+        hohBackupPlayerId,
+        blockBackupPlayerId
+      }
+    };
     const patch = {
       teams: nextTeams,
       hasCommittedTeam: true,
-      preseasonLocked: false
+      preseasonLocked: false,
+      backupHistory: nextBackupHistory
     };
     updateUserDoc(patch).catch(() => {
       setAuthError("Unable to save your team.");
     });
     setUserTeams(nextTeams);
+    setUserProfile((prev) =>
+      prev ? { ...prev, backupHistory: nextBackupHistory } : prev
+    );
     setPreseasonLocked(false);
     setDraftTeams((prev) => {
       if (!prev[nextWeekIndex]) {
@@ -2851,11 +3164,12 @@ function App() {
     );
   };
 
-  const renderReadOnlySlot = (slot, team, weekIndex) => {
+  const renderReadOnlySlot = (slot, team, weekIndex, backupAppliedSlots) => {
     const playerId = team?.[slot.id];
     const player = playersById.get(playerId);
     const groupId = slot.group === "HOH Room" ? "hoh" : "block";
     const isEvictedForWeek = isPlayerEvictedForWeek(player, weekIndex);
+    const isBackupApplied = backupAppliedSlots?.has(slot.id);
     const slotPoints = getWeekPointsForPlayer(
       weekEvents,
       weekIndex,
@@ -2877,6 +3191,11 @@ function App() {
             aria-label="Evicted"
           >
             !
+          </span>
+        )}
+        {isBackupApplied && (
+          <span className="backup-badge" title="Backup applied">
+            Backup
           </span>
         )}
         <button
@@ -2910,10 +3229,11 @@ function App() {
   };
 
   const renderSlotCard = (slot) => {
-    const playerId = viewTeam[slot.id];
+    const playerId = viewTeamWithBackups[slot.id];
     const player = playersById.get(playerId);
     const groupId = slot.group === "HOH Room" ? "hoh" : "block";
     const isEvictedForWeek = isPlayerEvictedForWeek(player, displayedWeekIndex);
+    const isBackupApplied = backupAppliedSlots.has(slot.id);
     const isSlotChanged =
       isEditable &&
       (draftNextTeam[slot.id] || "") !== (savedNextTeam[slot.id] || "");
@@ -2956,6 +3276,11 @@ function App() {
             aria-label="Evicted"
           >
             !
+          </span>
+        )}
+        {isBackupApplied && (
+          <span className="backup-badge" title="Backup applied">
+            Backup
           </span>
         )}
         <button
@@ -3983,8 +4308,9 @@ function App() {
                               {group.slots.map((slot) =>
                                 renderReadOnlySlot(
                                   slot,
-                                  leaderboardViewTeam,
-                                  leaderboardViewWeekIndex
+                                  leaderboardViewTeamWithBackups,
+                                  leaderboardViewWeekIndex,
+                                  leaderboardViewBackupAppliedSlots
                                 )
                               )}
                             </div>
@@ -4171,17 +4497,158 @@ function App() {
               const breakdownInactive = breakdownPlayer
                 ? isPlayerInactiveForWeek(breakdownPlayer, displayedWeekIndex)
                 : false;
+              const isBackupOpen = backupPanelOpen === group.id;
+              const backupId =
+                group.id === "hoh" ? hohBackupPlayerId : blockBackupPlayerId;
+              const otherBackupId =
+                group.id === "hoh" ? blockBackupPlayerId : hohBackupPlayerId;
+              const backupPlayer = backupId ? playersById.get(backupId) : null;
+              const backupMenuOpen = backupSelectOpen === group.id;
+              const backupStarterIds = isEditable
+                ? new Set(Object.values(draftNextTeam).filter(Boolean))
+                : new Set();
+              const backupDisabledIds = new Set(
+                [...backupStarterIds, otherBackupId].filter(Boolean)
+              );
+              const backupButtonLabel = backupId ? "Select backup" : "Open slot";
 
               return (
                 <section className="team-group" key={group.id}>
-                  <div className="group-header">
-                    <div className="group-info">
-                      <h2>{group.title}</h2>
-                      <p>{group.description}</p>
+                  <div
+                    className={`backup-shell ${isBackupOpen ? "open" : ""}`}
+                    data-group={group.id}
+                  >
+                    <div className="backup-main">
+                      <div className="group-header group-header--backup">
+                        <div className="group-info">
+                          <h2>{group.title}</h2>
+                          <p>{group.description}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="backup-toggle"
+                          onClick={() => handleToggleBackupPanel(group.id)}
+                          aria-expanded={isBackupOpen}
+                          aria-label={
+                            isBackupOpen
+                              ? "Hide backup panel"
+                              : "Show backup panel"
+                          }
+                        >
+                          <ChevronIcon direction={isBackupOpen ? "left" : "right"} />
+                        </button>
+                      </div>
+                      <div className={`slot-grid slot-grid--${group.id}`}>
+                        {group.slots.map((slot) => renderSlotCard(slot))}
+                      </div>
                     </div>
-                  </div>
-                  <div className={`slot-grid slot-grid--${group.id}`}>
-                    {group.slots.map((slot) => renderSlotCard(slot))}
+                    <aside className="backup-panel" aria-hidden={!isBackupOpen}>
+                      <div className="backup-panel-card">
+                        <div>
+                          <p className="backup-eyebrow">Backup player</p>
+                          <p className="backup-subtitle">
+                            Select a player to come in if one of your players is
+                            inactive.
+                          </p>
+                        </div>
+                        <div className="backup-current">
+                          <span className="backup-label">Current backup</span>
+                          {backupPlayer ? (
+                            <div className="backup-current-card">
+                              <span className="avatar-small">
+                                {backupPlayer.photo ? (
+                                  <img
+                                    src={backupPlayer.photo}
+                                    alt={backupPlayer.name}
+                                  />
+                                ) : (
+                                  <span>{getInitials(backupPlayer.name)}</span>
+                                )}
+                              </span>
+                              <span>{backupPlayer.name}</span>
+                            </div>
+                          ) : (
+                            <p className="backup-empty">None selected</p>
+                          )}
+                        </div>
+                        <div className="backup-actions">
+                          <div className="player-select backup-select">
+                            <button
+                              type="button"
+                              className="player-select-trigger"
+                              onClick={() => handleToggleBackupSelect(group.id)}
+                              aria-expanded={backupMenuOpen}
+                              disabled={!isEditable}
+                            >
+                              <span>{backupButtonLabel}</span>
+                              <ChevronIcon direction={backupMenuOpen ? "up" : "down"} />
+                            </button>
+                            {backupMenuOpen && (
+                              <div className="player-select-menu backup-select-menu">
+                                <button
+                                  type="button"
+                                  className="player-option"
+                                  onClick={() => {
+                                    handleBackupChange(group.id, "");
+                                    setBackupSelectOpen(null);
+                                  }}
+                                >
+                                  <span className="avatar-small backup-open-slot">
+                                    +
+                                  </span>
+                                  <span>Open slot</span>
+                                </button>
+                                {sortedPlayers.length === 0 && (
+                                  <p className="empty-note">
+                                    No players available.
+                                  </p>
+                                )}
+                                {sortedPlayers.map((option) => {
+                                  const disabled =
+                                    backupDisabledIds.has(option.id) ||
+                                    option.isEvicted;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={option.id}
+                                      className={`player-option ${
+                                        disabled ? "disabled" : ""
+                                      }`}
+                                      onClick={() => {
+                                        handleBackupChange(group.id, option.id);
+                                        setBackupSelectOpen(null);
+                                      }}
+                                      disabled={disabled}
+                                    >
+                                      <span className="avatar-small">
+                                        {option.photo ? (
+                                          <img
+                                            src={option.photo}
+                                            alt={option.name}
+                                          />
+                                        ) : (
+                                          <span>{getInitials(option.name)}</span>
+                                        )}
+                                      </span>
+                                      <span>{option.name}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                          <p className="backup-note">
+                            Changing this player won&#39;t use a transfer.
+                          </p>
+                          {!isEditable && (
+                            <p className="backup-disabled">
+                              Backups can only be changed while picking next
+                              week.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </aside>
                   </div>
                   {breakdownPlayer && (
                     <div
