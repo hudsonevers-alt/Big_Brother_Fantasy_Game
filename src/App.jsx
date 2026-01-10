@@ -65,6 +65,7 @@ const ADMIN_EMAIL = "hudsonevers@gmail.com";
 const PT_TIME_ZONE = "America/Los_Angeles";
 const PROFILE_PROMPT_DELAY_MS = 300;
 const CHAT_MESSAGE_LIMIT = 120;
+const BACKUP_PENALTY = 1;
 
 const rosterSlots = [
   { id: "hoh-1", group: "HOH Room", label: "HOH 1" },
@@ -1615,6 +1616,9 @@ function App() {
       if (!team) {
         return team;
       }
+      if (!Number.isFinite(currentWeekIndex) || weekIndex > currentWeekIndex) {
+        return team;
+      }
       const hohBackup = backupPrefs?.hohBackupPlayerId || "";
       const blockBackup = backupPrefs?.blockBackupPlayerId || "";
       if (!hohBackup && !blockBackup) {
@@ -1650,7 +1654,7 @@ function App() {
       applyBackup("block", blockBackup, hohBackup);
       return nextTeam;
     },
-    [playersById]
+    [currentWeekIndex, playersById]
   );
   const viewBackupPrefs = useMemo(
     () =>
@@ -1687,30 +1691,36 @@ function App() {
     }
   }, [isEditable]);
 
-  const displayedTeamPoints = useMemo(
-    () =>
-      rosterSlots.reduce((sum, slot) => {
-        const playerId = viewTeamWithBackups[slot.id];
-        const player = playersById.get(playerId);
-        return (
-          sum +
-          getWeekPointsForPlayer(
-            weekEvents,
-            displayedWeekIndex,
-            player,
-            slot.group
-          )
-        );
-      }, 0),
-    [displayedWeekIndex, playersById, viewTeamWithBackups, weekEvents]
-  );
+  const backupPenaltyCount = backupAppliedSlots.size;
+  const displayedTeamPoints = useMemo(() => {
+    const basePoints = rosterSlots.reduce((sum, slot) => {
+      const playerId = viewTeamWithBackups[slot.id];
+      const player = playersById.get(playerId);
+      return (
+        sum +
+        getWeekPointsForPlayer(
+          weekEvents,
+          displayedWeekIndex,
+          player,
+          slot.group
+        )
+      );
+    }, 0);
+    return basePoints - backupPenaltyCount * BACKUP_PENALTY;
+  }, [
+    backupPenaltyCount,
+    displayedWeekIndex,
+    playersById,
+    viewTeamWithBackups,
+    weekEvents
+  ]);
   const teamMetricValue = isEditable ? transfersRemaining : displayedTeamPoints;
   const teamMetricLabel = isEditable ? "transfers" : "pts";
 
   const getTeamPointsForWeek = useCallback(
     (team, weekIndex, backupPrefs) => {
       const resolvedTeam = getTeamWithBackups(team, weekIndex, backupPrefs);
-      return rosterSlots.reduce((sum, slot) => {
+      const basePoints = rosterSlots.reduce((sum, slot) => {
         const playerId = resolvedTeam?.[slot.id];
         const player = playersById.get(playerId);
         return (
@@ -1718,6 +1728,8 @@ function App() {
           getWeekPointsForPlayer(weekEvents, weekIndex, player, slot.group)
         );
       }, 0);
+      const penaltyCount = getBackupAppliedSlots(team, resolvedTeam).size;
+      return basePoints - penaltyCount * BACKUP_PENALTY;
     },
     [getTeamWithBackups, playersById, weekEvents]
   );
@@ -2115,6 +2127,13 @@ function App() {
 
   const handleTeamChange = (slotId, playerId) => {
     if (!isEditable || !nextWeek || !authUser) {
+      return;
+    }
+    if (
+      playerId &&
+      (playerId === hohBackupPlayerId || playerId === blockBackupPlayerId)
+    ) {
+      setTransferError("Backup player must be different from starters.");
       return;
     }
     setTransferError("");
@@ -3170,12 +3189,10 @@ function App() {
     const groupId = slot.group === "HOH Room" ? "hoh" : "block";
     const isEvictedForWeek = isPlayerEvictedForWeek(player, weekIndex);
     const isBackupApplied = backupAppliedSlots?.has(slot.id);
-    const slotPoints = getWeekPointsForPlayer(
-      weekEvents,
-      weekIndex,
-      player,
-      slot.group
-    );
+    const slotPenalty = isBackupApplied ? BACKUP_PENALTY : 0;
+    const slotPoints =
+      getWeekPointsForPlayer(weekEvents, weekIndex, player, slot.group) -
+      slotPenalty;
     const pointsClass =
       slotPoints > 0 ? "positive" : slotPoints < 0 ? "negative" : "";
 
@@ -3207,7 +3224,8 @@ function App() {
             }
             setLeaderboardBreakdownSelection({
               playerId,
-              groupId
+              groupId,
+              slotId: slot.id
             });
           }}
           disabled={!playerId}
@@ -3234,15 +3252,17 @@ function App() {
     const groupId = slot.group === "HOH Room" ? "hoh" : "block";
     const isEvictedForWeek = isPlayerEvictedForWeek(player, displayedWeekIndex);
     const isBackupApplied = backupAppliedSlots.has(slot.id);
+    const slotPenalty = isBackupApplied ? BACKUP_PENALTY : 0;
     const isSlotChanged =
       isEditable &&
       (draftNextTeam[slot.id] || "") !== (savedNextTeam[slot.id] || "");
-    const slotPoints = getWeekPointsForPlayer(
-      weekEvents,
-      displayedWeekIndex,
-      player,
-      slot.group
-    );
+    const slotPoints =
+      getWeekPointsForPlayer(
+        weekEvents,
+        displayedWeekIndex,
+        player,
+        slot.group
+      ) - slotPenalty;
     const pointsClass =
       slotPoints > 0 ? "positive" : slotPoints < 0 ? "negative" : "";
     const selectedIds = isEditable
@@ -3253,6 +3273,13 @@ function App() {
             .filter(Boolean)
         )
       : new Set();
+    if (isEditable) {
+      [hohBackupPlayerId, blockBackupPlayerId].forEach((backupId) => {
+        if (backupId) {
+          selectedIds.add(backupId);
+        }
+      });
+    }
     const isMenuOpen = openSelectSlotId === slot.id;
     const handleToggleMenu = () => {
       setOpenSelectSlotId((prev) => (prev === slot.id ? null : slot.id));
@@ -3292,7 +3319,8 @@ function App() {
             }
             setBreakdownSelection({
               playerId,
-              groupId
+              groupId,
+              slotId: slot.id
             });
           }}
           disabled={!playerId}
@@ -4273,7 +4301,14 @@ function App() {
                                 leaderboardBreakdownSelection.playerId
                               )
                             : null;
-                        const breakdownEntries = breakdownPlayer
+                        const breakdownPenaltyApplied = Boolean(
+                          breakdownPlayer &&
+                            leaderboardBreakdownSelection?.slotId &&
+                            leaderboardViewBackupAppliedSlots.has(
+                              leaderboardBreakdownSelection.slotId
+                            )
+                        );
+                        const breakdownEntriesBase = breakdownPlayer
                           ? buildPlayerBreakdown(
                               weekEvents,
                               leaderboardViewWeekIndex,
@@ -4281,13 +4316,23 @@ function App() {
                               group.title
                             )
                           : [];
+                        const breakdownEntries = breakdownPenaltyApplied
+                          ? [
+                              ...breakdownEntriesBase,
+                              {
+                                label: "Came on as backup",
+                                points: -BACKUP_PENALTY
+                              }
+                            ]
+                          : breakdownEntriesBase;
                         const breakdownPoints = breakdownPlayer
                           ? getWeekPointsForPlayer(
                               weekEvents,
                               leaderboardViewWeekIndex,
                               breakdownPlayer,
                               group.title
-                            )
+                            ) -
+                            (breakdownPenaltyApplied ? BACKUP_PENALTY : 0)
                           : 0;
                         const breakdownInactive = breakdownPlayer
                           ? isPlayerInactiveForWeek(
@@ -4478,7 +4523,12 @@ function App() {
                 breakdownSelection?.groupId === group.id
                   ? playersById.get(breakdownSelection.playerId)
                   : null;
-              const breakdownEntries = breakdownPlayer
+              const breakdownPenaltyApplied = Boolean(
+                breakdownPlayer &&
+                  breakdownSelection?.slotId &&
+                  backupAppliedSlots.has(breakdownSelection.slotId)
+              );
+              const breakdownEntriesBase = breakdownPlayer
                 ? buildPlayerBreakdown(
                     weekEvents,
                     displayedWeekIndex,
@@ -4486,13 +4536,19 @@ function App() {
                     group.title
                   )
                 : [];
+              const breakdownEntries = breakdownPenaltyApplied
+                ? [
+                    ...breakdownEntriesBase,
+                    { label: "Came on as backup", points: -BACKUP_PENALTY }
+                  ]
+                : breakdownEntriesBase;
               const breakdownPoints = breakdownPlayer
                 ? getWeekPointsForPlayer(
                     weekEvents,
                     displayedWeekIndex,
                     breakdownPlayer,
                     group.title
-                  )
+                  ) - (breakdownPenaltyApplied ? BACKUP_PENALTY : 0)
                 : 0;
               const breakdownInactive = breakdownPlayer
                 ? isPlayerInactiveForWeek(breakdownPlayer, displayedWeekIndex)
@@ -4512,7 +4568,12 @@ function App() {
               );
 
               return (
-                <section className="team-group" key={group.id}>
+                <section
+                  className={`team-group ${
+                    isBackupOpen ? "team-group--backup-open" : ""
+                  }`}
+                  key={group.id}
+                >
                   <div
                     className={`backup-shelf ${isBackupOpen ? "open" : ""}`}
                     data-group={group.id}
@@ -4548,7 +4609,7 @@ function App() {
                         <div className="backup-panel-header">
                           <h3 className="backup-title">Backup player</h3>
                           <p className="backup-subtitle">
-                            Select a player to come in if one of your players is
+                            Select a player to come in if one of your players are
                             inactive.
                           </p>
                         </div>

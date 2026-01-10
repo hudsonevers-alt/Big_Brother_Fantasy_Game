@@ -921,19 +921,26 @@ h2 {
   overflow: visible;
 }
 
+.team-group--backup-open {
+  z-index: 20;
+}
+
 .backup-shelf {
   position: relative;
   width: 100%;
 }
 
 .backup-main-mask {
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .backup-main {
   min-width: 0;
   transition: transform 0.35s ease;
   will-change: transform;
+  position: relative;
+  z-index: 5;
 }
 
 .backup-shelf.open .backup-main {
@@ -952,6 +959,7 @@ h2 {
   pointer-events: none;
   transform: translate(100%, -50%);
   transition: transform 0.35s ease, opacity 0.2s ease;
+  z-index: 10;
 }
 
 .backup-shelf.open .backup-panel {
@@ -1903,7 +1911,7 @@ h2 {
   gap: 0.4rem;
   max-height: 240px;
   overflow-y: auto;
-  z-index: 40;
+  z-index: 35;
   box-shadow: 0 18px 26px rgba(11, 31, 59, 0.18);
 }
 
