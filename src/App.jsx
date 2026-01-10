@@ -4513,16 +4513,13 @@ function App() {
               const backupButtonLabel = backupId ? "Select backup" : "Open slot";
 
               return (
-                <section className="backup-swap" key={group.id}>
-                  <div className="backup-viewport">
+                <section className="team-group" key={group.id}>
+                  <div className="backup-shelf">
                     <div
                       className={`backup-track ${isBackupOpen ? "open" : ""}`}
                       data-group={group.id}
                     >
-                      <div
-                        className="team-group backup-card backup-card--main"
-                        aria-hidden={isBackupOpen}
-                      >
+                      <div className="backup-main">
                         <div className="group-header group-header--backup">
                           <div className="group-info">
                             <h2>{group.title}</h2>
@@ -4533,133 +4530,130 @@ function App() {
                             className="backup-toggle"
                             onClick={() => handleToggleBackupPanel(group.id)}
                             aria-expanded={isBackupOpen}
-                            aria-label="Show backup panel"
+                            aria-label={
+                              isBackupOpen
+                                ? "Hide backup panel"
+                                : "Show backup panel"
+                            }
                           >
-                            <ChevronIcon direction="right" />
+                            <ChevronIcon direction={isBackupOpen ? "left" : "right"} />
                           </button>
                         </div>
                         <div className={`slot-grid slot-grid--${group.id}`}>
                           {group.slots.map((slot) => renderSlotCard(slot))}
                         </div>
                       </div>
-                      <div
-                        className="team-group backup-card backup-card--panel"
-                        aria-hidden={!isBackupOpen}
-                      >
-                        <div className="backup-card-header">
-                          <button
-                            type="button"
-                            className="backup-toggle"
-                            onClick={() => handleToggleBackupPanel(group.id)}
-                            aria-label="Back to team"
-                          >
-                            <ChevronIcon direction="left" />
-                          </button>
-                          <div className="backup-card-title">
+                      <aside className="backup-panel" aria-hidden={!isBackupOpen}>
+                        <div className="backup-panel-card">
+                          <div className="backup-panel-header">
                             <h3 className="backup-title">Backup player</h3>
                             <p className="backup-subtitle">
                               Select a player to come in if one of your players
                               is inactive.
                             </p>
                           </div>
-                        </div>
-                        <div className="backup-current">
-                          <span className="backup-label">Current backup</span>
-                          {backupPlayer ? (
-                            <div className="backup-current-card">
-                              <span className="avatar-small">
-                                {backupPlayer.photo ? (
-                                  <img
-                                    src={backupPlayer.photo}
-                                    alt={backupPlayer.name}
-                                  />
-                                ) : (
-                                  <span>{getInitials(backupPlayer.name)}</span>
-                                )}
-                              </span>
-                              <span>{backupPlayer.name}</span>
-                            </div>
-                          ) : (
-                            <p className="backup-empty">None selected</p>
-                          )}
-                        </div>
-                        <div className="backup-actions">
-                          <div className="player-select backup-select">
-                            <button
-                              type="button"
-                              className="player-select-trigger"
-                              onClick={() => handleToggleBackupSelect(group.id)}
-                              aria-expanded={backupMenuOpen}
-                              disabled={!isEditable}
-                            >
-                              <span>{backupButtonLabel}</span>
-                              <ChevronIcon direction={backupMenuOpen ? "up" : "down"} />
-                            </button>
-                            {backupMenuOpen && (
-                              <div className="player-select-menu backup-select-menu">
-                                <button
-                                  type="button"
-                                  className="player-option"
-                                  onClick={() => {
-                                    handleBackupChange(group.id, "");
-                                    setBackupSelectOpen(null);
-                                  }}
-                                >
-                                  <span className="avatar-small backup-open-slot">
-                                    +
-                                  </span>
-                                  <span>Open slot</span>
-                                </button>
-                                {sortedPlayers.length === 0 && (
-                                  <p className="empty-note">
-                                    No players available.
-                                  </p>
-                                )}
-                                {sortedPlayers.map((option) => {
-                                  const disabled =
-                                    backupDisabledIds.has(option.id) ||
-                                    option.isEvicted;
-                                  return (
-                                    <button
-                                      type="button"
-                                      key={option.id}
-                                      className={`player-option ${
-                                        disabled ? "disabled" : ""
-                                      }`}
-                                      onClick={() => {
-                                        handleBackupChange(group.id, option.id);
-                                        setBackupSelectOpen(null);
-                                      }}
-                                      disabled={disabled}
-                                    >
-                                      <span className="avatar-small">
-                                        {option.photo ? (
-                                          <img
-                                            src={option.photo}
-                                            alt={option.name}
-                                          />
-                                        ) : (
-                                          <span>{getInitials(option.name)}</span>
-                                        )}
-                                      </span>
-                                      <span>{option.name}</span>
-                                    </button>
-                                  );
-                                })}
+                          <div className="backup-current">
+                            <span className="backup-label">Current backup</span>
+                            {backupPlayer ? (
+                              <div className="backup-current-card">
+                                <span className="avatar-small">
+                                  {backupPlayer.photo ? (
+                                    <img
+                                      src={backupPlayer.photo}
+                                      alt={backupPlayer.name}
+                                    />
+                                  ) : (
+                                    <span>{getInitials(backupPlayer.name)}</span>
+                                  )}
+                                </span>
+                                <span>{backupPlayer.name}</span>
                               </div>
+                            ) : (
+                              <p className="backup-empty">None selected</p>
                             )}
                           </div>
-                          <p className="backup-note">
-                            Changing this player won&#39;t use a transfer.
-                          </p>
-                          {!isEditable && (
-                            <p className="backup-disabled">
-                              Backups can only be changed while picking next
-                              week.
+                          <div className="backup-actions">
+                            <div className="player-select backup-select">
+                              <button
+                                type="button"
+                                className="player-select-trigger"
+                                onClick={() =>
+                                  handleToggleBackupSelect(group.id)
+                                }
+                                aria-expanded={backupMenuOpen}
+                                disabled={!isEditable}
+                              >
+                                <span>{backupButtonLabel}</span>
+                                <ChevronIcon
+                                  direction={backupMenuOpen ? "up" : "down"}
+                                />
+                              </button>
+                              {backupMenuOpen && (
+                                <div className="player-select-menu backup-select-menu">
+                                  <button
+                                    type="button"
+                                    className="player-option"
+                                    onClick={() => {
+                                      handleBackupChange(group.id, "");
+                                      setBackupSelectOpen(null);
+                                    }}
+                                  >
+                                    <span className="avatar-small backup-open-slot">
+                                      +
+                                    </span>
+                                    <span>Open slot</span>
+                                  </button>
+                                  {sortedPlayers.length === 0 && (
+                                    <p className="empty-note">
+                                      No players available.
+                                    </p>
+                                  )}
+                                  {sortedPlayers.map((option) => {
+                                    const disabled =
+                                      backupDisabledIds.has(option.id) ||
+                                      option.isEvicted;
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={option.id}
+                                        className={`player-option ${
+                                          disabled ? "disabled" : ""
+                                        }`}
+                                        onClick={() => {
+                                          handleBackupChange(group.id, option.id);
+                                          setBackupSelectOpen(null);
+                                        }}
+                                        disabled={disabled}
+                                      >
+                                        <span className="avatar-small">
+                                          {option.photo ? (
+                                            <img
+                                              src={option.photo}
+                                              alt={option.name}
+                                            />
+                                          ) : (
+                                            <span>{getInitials(option.name)}</span>
+                                          )}
+                                        </span>
+                                        <span>{option.name}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                            <p className="backup-note">
+                              Changing this player won&#39;t use a transfer.
                             </p>
-                          )}
+                            {!isEditable && (
+                              <p className="backup-disabled">
+                                Backups can only be changed while picking next
+                                week.
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      </aside>
                     </div>
                   </div>
                   {breakdownPlayer && (

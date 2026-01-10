@@ -921,19 +921,16 @@ h2 {
   overflow: visible;
 }
 
-.backup-swap {
+.backup-shelf {
   position: relative;
   width: 100%;
-}
-
-.backup-viewport {
   overflow-x: hidden;
   overflow-y: visible;
 }
 
 .backup-track {
   display: flex;
-  width: 200%;
+  width: 150%;
   transform: translateX(0);
   transition: transform 0.35s ease;
   align-items: stretch;
@@ -941,47 +938,48 @@ h2 {
 }
 
 .backup-track.open {
-  transform: translateX(-100%);
+  transform: translateX(-50%);
 }
 
-.backup-card {
+.backup-main {
   flex: 0 0 100%;
-  width: 100%;
   min-width: 0;
-  display: grid;
-  gap: 1rem;
 }
 
-.backup-card--panel {
-  align-content: start;
+.backup-panel {
+  flex: 0 0 50%;
+  min-width: 0;
+  padding-left: 0.9rem;
+  display: flex;
+  align-items: flex-start;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
 }
 
-.backup-track.open .backup-card--panel {
+.backup-track.open .backup-panel {
   opacity: 1;
   pointer-events: auto;
 }
 
-.backup-track.open .backup-card--main {
-  pointer-events: none;
-}
-
-.backup-card-header {
+.backup-panel-card {
+  background: var(--paper-1);
+  border: 1px solid var(--border-1);
+  border-radius: 18px;
+  padding: 0.9rem;
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.75rem;
-  align-items: start;
+  gap: 0.8rem;
+  box-shadow: 0 10px 22px rgba(11, 31, 59, 0.12);
+  width: 100%;
 }
 
-.backup-card-title {
+.backup-panel-header {
   display: grid;
   gap: 0.35rem;
 }
 
 .backup-title {
-  font-size: clamp(1.4rem, 2.6vw, 1.7rem);
+  font-size: 1.1rem;
 }
 
 .backup-subtitle {
