@@ -494,6 +494,29 @@ const isPlayerSelectableForWeek = (player, weekIndex) => {
   return weekIndex <= getEvictedWeekIndex(player) + 1;
 };
 
+const getTimestampMs = (value) => {
+  if (!value) {
+    return 0;
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  if (typeof value.toMillis === "function") {
+    return value.toMillis();
+  }
+  if (typeof value.seconds === "number") {
+    return value.seconds * 1000;
+  }
+  return 0;
+};
+
 const eventOptions = [
   { id: "hohWin", label: "HOH win" },
   { id: "vetoWin", label: "Veto win" },
@@ -682,6 +705,7 @@ function App() {
   const [selectedChatLeagueId, setSelectedChatLeagueId] = useState(null);
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
+  const [leagueMessageMeta, setLeagueMessageMeta] = useState({});
   const [userProfile, setUserProfile] = useState(null);
   const [userProfileReady, setUserProfileReady] = useState(false);
   const [seasonExists, setSeasonExists] = useState(true);
@@ -1026,6 +1050,33 @@ function App() {
 
   useEffect(() => {
     if (!authUser) {
+      setLeagueMessageMeta({});
+      return;
+    }
+    if (memberLeagues.length === 0) {
+      setLeagueMessageMeta({});
+      return;
+    }
+    setLeagueMessageMeta({});
+    const unsubscribes = memberLeagues.map((league) => {
+      const messagesRef = collection(db, "leagues", league.id, "messages");
+      const messagesQuery = query(
+        messagesRef,
+        orderBy("createdAt", "desc"),
+        limit(1)
+      );
+      return onSnapshot(messagesQuery, (snapshot) => {
+        const latest = snapshot.docs[0]?.data()?.createdAt || null;
+        setLeagueMessageMeta((prev) => ({ ...prev, [league.id]: latest }));
+      });
+    });
+    return () => {
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [authUser, memberLeagues]);
+
+  useEffect(() => {
+    if (!authUser) {
       setUserProfile(null);
       setUserProfileReady(false);
       setUserTeams({});
@@ -1073,6 +1124,7 @@ function App() {
           hohBackupPlayerId: "",
           blockBackupPlayerId: "",
           backupHistory: {},
+          chatReadAt: { global: 0, leagues: {} },
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         };
@@ -1572,15 +1624,64 @@ function App() {
     () => memberLeagues.find((league) => league.id === selectedChatLeagueId) || null,
     [memberLeagues, selectedChatLeagueId]
   );
-  const chatTitle =
-    chatScope === "global"
-      ? "Global chat"
-      : activeChatLeague
-        ? `${activeChatLeague.name}`
-        : "League chat";
   const isChatDisabled = Boolean(
     !authUser || (chatScope === "leagues" && !activeChatLeague)
   );
+  const chatReadAt = userProfile?.chatReadAt || {};
+  const chatReadLeagueMap = chatReadAt?.leagues || {};
+  const markChatRead = useCallback(
+    (scope, leagueId) => {
+      if (!authUser) {
+        return;
+      }
+      const existingGlobal = getTimestampMs(chatReadAt.global);
+      const existingLeague = leagueId
+        ? getTimestampMs(chatReadLeagueMap[leagueId])
+        : 0;
+      const nowMs = Date.now();
+      if (scope === "global" && nowMs - existingGlobal < 1000) {
+        return;
+      }
+      if (scope === "league" && leagueId && nowMs - existingLeague < 1000) {
+        return;
+      }
+      const currentRead = chatReadAt || {};
+      const nextLeagues = { ...(currentRead.leagues || {}) };
+      let nextGlobal = currentRead.global || 0;
+      if (scope === "global") {
+        nextGlobal = nowMs;
+      } else if (leagueId) {
+        nextLeagues[leagueId] = nowMs;
+      } else {
+        return;
+      }
+      const nextChatReadAt = {
+        ...currentRead,
+        global: nextGlobal,
+        leagues: nextLeagues
+      };
+      updateUserDoc({ chatReadAt: nextChatReadAt }).catch(() => {
+        setAuthError("Unable to update chat status.");
+      });
+      setUserProfile((prev) =>
+        prev ? { ...prev, chatReadAt: nextChatReadAt } : prev
+      );
+    },
+    [authUser, chatReadAt, chatReadLeagueMap, updateUserDoc]
+  );
+
+  useEffect(() => {
+    if (!authUser || activeTab !== "chat") {
+      return;
+    }
+    if (chatScope === "global") {
+      markChatRead("global");
+      return;
+    }
+    if (selectedChatLeagueId) {
+      markChatRead("league", selectedChatLeagueId);
+    }
+  }, [activeTab, authUser, chatScope, markChatRead, selectedChatLeagueId]);
   const showProfileModal = Boolean(profileModalOpen);
   const transferSummary = useMemo(() => {
     if (!hasDraftChanges) {
@@ -3636,11 +3737,6 @@ function App() {
         <div>
           <p className="eyebrow">Big Brother Fantasy</p>
           <h1>Chat</h1>
-          <p className="page-subtitle">
-            {chatScope === "global"
-              ? "Talk with everyone playing the game."
-              : "Chat with players in your private leagues."}
-          </p>
         </div>
       </header>
       {!authUser && (
@@ -3651,94 +3747,131 @@ function App() {
           <button
             type="button"
             className={chatScope === "global" ? "accent" : "ghost"}
-            onClick={() => setChatScope("global")}
+            onClick={() => {
+              setChatScope("global");
+              setSelectedChatLeagueId(null);
+            }}
           >
             Global
           </button>
           <button
             type="button"
             className={chatScope === "leagues" ? "accent" : "ghost"}
-            onClick={() => setChatScope("leagues")}
+            onClick={() => {
+              setChatScope("leagues");
+              setSelectedChatLeagueId(null);
+            }}
           >
             Leagues
           </button>
         </div>
-        {chatScope === "leagues" && (
+        {chatScope === "leagues" && authUser && !selectedChatLeagueId && (
           <div className="chat-league-list">
             {memberLeagues.length === 0 ? (
               <p className="empty-note">Join a league to unlock league chat.</p>
             ) : (
-              <div className="league-pills">
-                {memberLeagues.map((league) => (
+              memberLeagues.map((league) => {
+                const lastRead = getTimestampMs(
+                  chatReadLeagueMap[league.id]
+                );
+                const lastMessage = getTimestampMs(
+                  leagueMessageMeta[league.id]
+                );
+                const hasUnread =
+                  lastMessage > 0 && lastMessage > lastRead;
+                return (
                   <button
                     type="button"
                     key={league.id}
-                    className={`league-pill ${
-                      league.id === selectedChatLeagueId ? "active" : ""
-                    }`}
+                    className="chat-league-button"
                     onClick={() => setSelectedChatLeagueId(league.id)}
                   >
-                    {league.name}
+                    <span className="chat-league-name">{league.name}</span>
+                    {hasUnread && (
+                      <span
+                        className="chat-unread-dot"
+                        aria-label="Unread messages"
+                      />
+                    )}
                   </button>
-                ))}
-              </div>
+                );
+              })
             )}
           </div>
         )}
-        <div className="chat-header">
-          <h3>{chatTitle}</h3>
-        </div>
-        {chatError && <p className="notice">{chatError}</p>}
-        <div className="chat-thread" ref={chatThreadRef}>
-          {chatMessages.length === 0 ? (
-            <p className="empty-note">No messages yet.</p>
-          ) : (
-            chatMessages.map((message) => {
-              const messageName = message.userName || "Player";
-              const isOwn = message.userId === authUser?.uid;
-              return (
-                <div
-                  key={message.id}
-                  className={`chat-message ${isOwn ? "own" : ""}`}
-                >
-                  <div className="avatar-small">
-                    {message.avatarUrl ? (
-                      <img src={message.avatarUrl} alt={messageName} />
-                    ) : (
-                      <span>{getInitials(messageName)}</span>
-                    )}
-                  </div>
-                  <div className="chat-message-body">
-                    <div className="chat-message-header">
-                      <span className="chat-message-name">{messageName}</span>
-                      <span className="chat-message-time">
-                        {formatMessageTime(message.createdAt)}
-                      </span>
+        {chatScope === "global" && (
+          <div className="chat-header">
+            <h3>Global chat</h3>
+          </div>
+        )}
+        {chatScope === "leagues" && selectedChatLeagueId && (
+          <div className="chat-header chat-header--league">
+            <button
+              type="button"
+              className="ghost chat-back-button"
+              onClick={() => setSelectedChatLeagueId(null)}
+              aria-label="Back to leagues"
+            >
+              <ChevronIcon direction="left" />
+            </button>
+            <h3>{activeChatLeague?.name || "League chat"}</h3>
+          </div>
+        )}
+        {(chatScope === "global" || selectedChatLeagueId) && (
+          <>
+            {chatError && <p className="notice">{chatError}</p>}
+            <div className="chat-thread" ref={chatThreadRef}>
+              {chatMessages.length === 0 ? (
+                <p className="empty-note">No messages yet.</p>
+              ) : (
+                chatMessages.map((message) => {
+                  const messageName = message.userName || "Player";
+                  const isOwn = message.userId === authUser?.uid;
+                  return (
+                    <div
+                      key={message.id}
+                      className={`chat-message ${isOwn ? "own" : ""}`}
+                    >
+                      <div className="avatar-small">
+                        {message.avatarUrl ? (
+                          <img src={message.avatarUrl} alt={messageName} />
+                        ) : (
+                          <span>{getInitials(messageName)}</span>
+                        )}
+                      </div>
+                      <div className="chat-message-body">
+                        <div className="chat-message-header">
+                          <span className="chat-message-name">{messageName}</span>
+                          <span className="chat-message-time">
+                            {formatMessageTime(message.createdAt)}
+                          </span>
+                        </div>
+                        <p>{message.text}</p>
+                      </div>
                     </div>
-                    <p>{message.text}</p>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-        <form className="chat-input" onSubmit={handleSendChatMessage}>
-          <input
-            type="text"
-            placeholder={
-              chatScope === "global"
-                ? "Send a message to everyone"
-                : "Send a message to your league"
-            }
-            value={chatInput}
-            onChange={(event) => setChatInput(event.target.value)}
-            disabled={isChatDisabled}
-            maxLength={280}
-          />
-          <button type="submit" disabled={isChatDisabled || chatSending}>
-            Send
-          </button>
-        </form>
+                  );
+                })
+              )}
+            </div>
+            <form className="chat-input" onSubmit={handleSendChatMessage}>
+              <input
+                type="text"
+                placeholder={
+                  chatScope === "global"
+                    ? "Send a message to everyone"
+                    : "Send a message to your league"
+                }
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                disabled={isChatDisabled}
+                maxLength={280}
+              />
+              <button type="submit" disabled={isChatDisabled || chatSending}>
+                Send
+              </button>
+            </form>
+          </>
+        )}
       </div>
     </section>
   );
