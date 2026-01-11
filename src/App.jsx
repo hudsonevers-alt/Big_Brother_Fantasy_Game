@@ -487,6 +487,13 @@ const isPlayerEvictedForWeek = (player, weekIndex) =>
 const isPlayerInactiveForWeek = (player, weekIndex) =>
   Boolean(player?.isEvicted) && weekIndex > getEvictedWeekIndex(player);
 
+const isPlayerSelectableForWeek = (player, weekIndex) => {
+  if (!player?.isEvicted) {
+    return true;
+  }
+  return weekIndex <= getEvictedWeekIndex(player) + 1;
+};
+
 const eventOptions = [
   { id: "hohWin", label: "HOH win" },
   { id: "vetoWin", label: "Veto win" },
@@ -688,6 +695,9 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
   const [now, setNow] = useState(() => new Date());
+  const appShellRef = useRef(null);
+  const selectMenuAnchorRef = useRef(null);
+  const backupMenuAnchorRef = useRef(null);
   const profileInitRef = useRef(false);
   const chatThreadRef = useRef(null);
   const transferErrorTimeoutRef = useRef(null);
@@ -785,6 +795,8 @@ function App() {
     setBackupPanelOpen(null);
     setBackupSelectOpen(null);
     setBackupMenuPosition(null);
+    selectMenuAnchorRef.current = null;
+    backupMenuAnchorRef.current = null;
     setLeaderboardFilterOpen(false);
     setLeagueManagerOpen(false);
   }, []);
@@ -1719,6 +1731,8 @@ function App() {
       setSelectMenuPosition(null);
       setBackupSelectOpen(null);
       setBackupMenuPosition(null);
+      selectMenuAnchorRef.current = null;
+      backupMenuAnchorRef.current = null;
     }
   }, [isEditable]);
 
@@ -2230,6 +2244,8 @@ function App() {
     setBackupMenuPosition(null);
     setOpenSelectSlotId(null);
     setSelectMenuPosition(null);
+    selectMenuAnchorRef.current = null;
+    backupMenuAnchorRef.current = null;
   };
 
   const handleToggleBackupSelect = (groupId, event) => {
@@ -2243,8 +2259,10 @@ function App() {
         ? getMenuPosition(event.currentTarget)
         : null
     );
+    backupMenuAnchorRef.current = nextOpen ? event?.currentTarget : null;
     setOpenSelectSlotId(null);
     setSelectMenuPosition(null);
+    selectMenuAnchorRef.current = null;
   };
 
   const handleResetDraft = () => {
@@ -3330,6 +3348,31 @@ function App() {
     return { top, left, width: menuWidth };
   }, []);
 
+  const updateOpenMenuPositions = useCallback(() => {
+    if (openSelectSlotId && selectMenuAnchorRef.current) {
+      setSelectMenuPosition(getMenuPosition(selectMenuAnchorRef.current));
+    }
+    if (backupSelectOpen && backupMenuAnchorRef.current) {
+      setBackupMenuPosition(getMenuPosition(backupMenuAnchorRef.current));
+    }
+  }, [backupSelectOpen, getMenuPosition, openSelectSlotId]);
+
+  useEffect(() => {
+    if (!openSelectSlotId && !backupSelectOpen) {
+      return;
+    }
+    const handleScroll = () => {
+      updateOpenMenuPositions();
+    };
+    const scrollNode = appShellRef.current;
+    scrollNode?.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll);
+    return () => {
+      scrollNode?.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [backupSelectOpen, openSelectSlotId, updateOpenMenuPositions]);
+
   const getSelectedIdsForSlot = useCallback(
     (slotId) => {
       if (!isEditable) {
@@ -3466,8 +3509,10 @@ function App() {
           ? getMenuPosition(event.currentTarget)
           : null
       );
+      selectMenuAnchorRef.current = nextOpen ? event?.currentTarget : null;
       setBackupSelectOpen(null);
       setBackupMenuPosition(null);
+      backupMenuAnchorRef.current = null;
     };
 
     return (
@@ -3982,6 +4027,7 @@ function App() {
   return (
     <div
       className="app-shell"
+      ref={appShellRef}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -4888,7 +4934,7 @@ function App() {
                         {sortedPlayers.map((option) => {
                           const disabled =
                             openSlotSelectedIds.has(option.id) ||
-                            option.isEvicted;
+                            !isPlayerSelectableForWeek(option, nextWeekIndex);
                           return (
                             <button
                               type="button"
@@ -4900,12 +4946,13 @@ function App() {
                                 if (!openSlot) {
                                   return;
                                 }
-                                handleTeamChange(openSlot.id, option.id);
-                                setOpenSelectSlotId(null);
-                                setSelectMenuPosition(null);
-                              }}
-                              disabled={disabled}
-                            >
+                              handleTeamChange(openSlot.id, option.id);
+                              setOpenSelectSlotId(null);
+                              setSelectMenuPosition(null);
+                              selectMenuAnchorRef.current = null;
+                            }}
+                            disabled={disabled}
+                          >
                               <span className="avatar-small">
                                 {option.photo ? (
                                   <img src={option.photo} alt={option.name} />
@@ -4938,6 +4985,7 @@ function App() {
                             handleBackupChange(group.id, "");
                             setBackupSelectOpen(null);
                             setBackupMenuPosition(null);
+                            backupMenuAnchorRef.current = null;
                           }}
                         >
                           <span className="avatar-small backup-open-slot">+</span>
@@ -4949,7 +4997,7 @@ function App() {
                         {sortedPlayers.map((option) => {
                           const disabled =
                             backupDisabledIds.has(option.id) ||
-                            option.isEvicted;
+                            !isPlayerSelectableForWeek(option, nextWeekIndex);
                           return (
                             <button
                               type="button"
@@ -4958,12 +5006,13 @@ function App() {
                                 disabled ? "disabled" : ""
                               }`}
                               onClick={() => {
-                                handleBackupChange(group.id, option.id);
-                                setBackupSelectOpen(null);
-                                setBackupMenuPosition(null);
-                              }}
-                              disabled={disabled}
-                            >
+                              handleBackupChange(group.id, option.id);
+                              setBackupSelectOpen(null);
+                              setBackupMenuPosition(null);
+                              backupMenuAnchorRef.current = null;
+                            }}
+                            disabled={disabled}
+                          >
                               <span className="avatar-small">
                                 {option.photo ? (
                                   <img src={option.photo} alt={option.name} />
