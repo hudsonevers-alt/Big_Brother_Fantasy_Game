@@ -107,10 +107,91 @@ const rosterGroups = [
     slots: rosterSlots.filter((slot) => slot.group === "The Block")
   }
 ];
-const backupSlotsByGroup = {
-  hoh: rosterSlots.filter((slot) => slot.group === "HOH Room"),
-  block: rosterSlots.filter((slot) => slot.group === "The Block")
+const ROSTER_PHASES = {
+  standard: "standard",
+  top8: "top8",
+  top4: "top4"
 };
+const TOP8_POINTS_MULTIPLIER = 1.5;
+const TOP4_POINTS_MULTIPLIER = 2;
+const SLOT_IDS_STANDARD = rosterSlots.map((slot) => slot.id);
+const SLOT_IDS_TOP8 = ["hoh-1", "hoh-2", "block-1"];
+const SLOT_IDS_TOP4 = ["hoh-1"];
+const rosterSlotMap = new Map(rosterSlots.map((slot) => [slot.id, slot]));
+
+const getRosterPhaseForWeek = (weekIndex, top8WeekIndex, top4WeekIndex) => {
+  if (!Number.isFinite(weekIndex)) {
+    return ROSTER_PHASES.standard;
+  }
+  if (Number.isFinite(top4WeekIndex) && weekIndex >= top4WeekIndex) {
+    return ROSTER_PHASES.top4;
+  }
+  if (Number.isFinite(top8WeekIndex) && weekIndex >= top8WeekIndex) {
+    return ROSTER_PHASES.top8;
+  }
+  return ROSTER_PHASES.standard;
+};
+
+const getRosterSlotsForPhase = (phase) => {
+  const slotIds =
+    phase === ROSTER_PHASES.top4
+      ? SLOT_IDS_TOP4
+      : phase === ROSTER_PHASES.top8
+        ? SLOT_IDS_TOP8
+        : SLOT_IDS_STANDARD;
+  return slotIds.map((slotId) => rosterSlotMap.get(slotId)).filter(Boolean);
+};
+
+const getRosterSlotsForWeek = (weekIndex, top8WeekIndex, top4WeekIndex) =>
+  getRosterSlotsForPhase(
+    getRosterPhaseForWeek(weekIndex, top8WeekIndex, top4WeekIndex)
+  );
+
+const getRosterGroupsForWeek = (weekIndex, top8WeekIndex, top4WeekIndex) => {
+  const allowedIds = new Set(
+    getRosterSlotsForWeek(weekIndex, top8WeekIndex, top4WeekIndex).map(
+      (slot) => slot.id
+    )
+  );
+  return rosterGroups
+    .map((group) => ({
+      ...group,
+      slots: group.slots.filter((slot) => allowedIds.has(slot.id))
+    }))
+    .filter((group) => group.slots.length > 0);
+};
+
+const getBackupSlotsByGroupForWeek = (weekIndex, top8WeekIndex, top4WeekIndex) => {
+  const slots = getRosterSlotsForWeek(weekIndex, top8WeekIndex, top4WeekIndex);
+  return {
+    hoh: slots.filter((slot) => slot.group === "HOH Room"),
+    block: slots.filter((slot) => slot.group === "The Block")
+  };
+};
+
+const getPointsMultiplierForWeek = (weekIndex, top8WeekIndex, top4WeekIndex) => {
+  const phase = getRosterPhaseForWeek(weekIndex, top8WeekIndex, top4WeekIndex);
+  if (phase === ROSTER_PHASES.top4) {
+    return TOP4_POINTS_MULTIPLIER;
+  }
+  if (phase === ROSTER_PHASES.top8) {
+    return TOP8_POINTS_MULTIPLIER;
+  }
+  return 1;
+};
+
+const applyPointsMultiplier = (value, multiplier) => {
+  if (!multiplier || multiplier === 1) {
+    return value;
+  }
+  return Math.round(value * multiplier * 2) / 2;
+};
+
+const applyBreakdownMultiplier = (entries, multiplier) =>
+  entries.map((entry) => ({
+    ...entry,
+    points: applyPointsMultiplier(entry.points, multiplier)
+  }));
 
 const defaultPlayers = [
   {
@@ -195,20 +276,33 @@ const createEmptyTeam = () =>
     return acc;
   }, {});
 
-const isTeamComplete = (team) =>
-  rosterSlots.every((slot) => Boolean(team[slot.id]));
+const trimTeamToSlots = (team, activeSlots) => {
+  const activeIds = new Set(activeSlots.map((slot) => slot.id));
+  return rosterSlots.reduce((acc, slot) => {
+    acc[slot.id] = activeIds.has(slot.id) ? team?.[slot.id] || "" : "";
+    return acc;
+  }, {});
+};
 
-const hasAnyPlayer = (team) =>
-  rosterSlots.some((slot) => Boolean(team?.[slot.id]));
+const isTeamCompleteForSlots = (team, slots) =>
+  slots.every((slot) => Boolean(team?.[slot.id]));
 
-const getLockedTeamWeeks = (teams, maxIndex) => {
+const hasAnyPlayerForSlots = (team, slots) =>
+  slots.some((slot) => Boolean(team?.[slot.id]));
+
+const getLockedTeamWeeks = (teams, maxIndex, top8WeekIndex, top4WeekIndex) => {
   if (!Number.isFinite(maxIndex)) {
     return [];
   }
   return Object.keys(teams || {})
     .map((key) => Number(key))
     .filter((index) => Number.isFinite(index) && index <= maxIndex)
-    .filter((index) => hasAnyPlayer(teams?.[index]))
+    .filter((index) =>
+      hasAnyPlayerForSlots(
+        teams?.[index],
+        getRosterSlotsForWeek(index, top8WeekIndex, top4WeekIndex)
+      )
+    )
     .sort((a, b) => a - b);
 };
 
@@ -226,9 +320,9 @@ const getBackupPrefsForWeek = (weekIndex, backupPrefs, backupHistory = {}) => {
   };
 };
 
-const getBackupAppliedSlots = (team, resolvedTeam) => {
+const getBackupAppliedSlots = (team, resolvedTeam, slots = rosterSlots) => {
   const applied = new Set();
-  rosterSlots.forEach((slot) => {
+  slots.forEach((slot) => {
     const starterId = team?.[slot.id];
     const resolvedId = resolvedTeam?.[slot.id];
     if (starterId && resolvedId && starterId !== resolvedId) {
@@ -457,8 +551,8 @@ const createPlayerId = (name) => {
     .slice(2, 6)}`;
 };
 
-const countTransfers = (currentTeam, nextTeam) =>
-  rosterSlots.reduce(
+const countTransfersForSlots = (currentTeam, nextTeam, slots) =>
+  slots.reduce(
     (count, slot) =>
       currentTeam[slot.id] !== nextTeam[slot.id] ? count + 1 : count,
     0
@@ -495,8 +589,8 @@ const getNextDeadlineTimestamp = (nextWeeks, nextCurrentWeekIndex) => {
   return getDeadlineTimestamp(nextWeek?.deadline);
 };
 
-const areTeamsEqual = (teamA, teamB) =>
-  rosterSlots.every(
+const areTeamsEqualForSlots = (teamA, teamB, slots) =>
+  slots.every(
     (slot) => (teamA?.[slot.id] || "") === (teamB?.[slot.id] || "")
   );
 
@@ -717,6 +811,8 @@ function App() {
   const [weekEvents, setWeekEvents] = useState({});
   const [currentWeekIndex, setCurrentWeekIndex] = useState(null);
   const [seasonNextDeadline, setSeasonNextDeadline] = useState(null);
+  const [top8WeekIndex, setTop8WeekIndex] = useState(null);
+  const [top4WeekIndex, setTop4WeekIndex] = useState(null);
   const [displayedWeekIndex, setDisplayedWeekIndex] = useState(0);
   const [userTeams, setUserTeams] = useState({});
   const [draftTeams, setDraftTeams] = useState({});
@@ -805,8 +901,13 @@ function App() {
     if (!leaderboardViewUser || !Number.isFinite(currentWeekIndex)) {
       return [];
     }
-    return getLockedTeamWeeks(leaderboardViewUser.teams, currentWeekIndex);
-  }, [currentWeekIndex, leaderboardViewUser]);
+    return getLockedTeamWeeks(
+      leaderboardViewUser.teams,
+      currentWeekIndex,
+      top8WeekIndex,
+      top4WeekIndex
+    );
+  }, [currentWeekIndex, leaderboardViewUser, top4WeekIndex, top8WeekIndex]);
   const memberLeagues = useMemo(() => {
     if (!authUser) {
       return [];
@@ -1109,6 +1210,8 @@ function App() {
           setWeekEvents({});
           setCurrentWeekIndex(null);
           setSeasonNextDeadline(null);
+          setTop8WeekIndex(null);
+          setTop4WeekIndex(null);
           return;
         }
         setSeasonExists(true);
@@ -1116,6 +1219,12 @@ function App() {
         setWeeks(Array.isArray(data.weeks) ? data.weeks : []);
         setWeekEvents(data.weekEvents || {});
         setSeasonNextDeadline(data.nextDeadline || null);
+        setTop8WeekIndex(
+          Number.isFinite(data.top8WeekIndex) ? data.top8WeekIndex : null
+        );
+        setTop4WeekIndex(
+          Number.isFinite(data.top4WeekIndex) ? data.top4WeekIndex : null
+        );
         setCurrentWeekIndex(
           Number.isFinite(data.currentWeekIndex) ? data.currentWeekIndex : null
         );
@@ -1515,6 +1624,30 @@ function App() {
   const nextWeek = weeks[nextWeekIndex] || null;
   const maxViewIndex = nextWeek ? nextWeekIndex : currentWeekIndex ?? 0;
   const isPreseason = currentWeekIndex === null;
+  const rosterSlotsForCurrentWeek = useMemo(
+    () => getRosterSlotsForWeek(currentWeekIndex, top8WeekIndex, top4WeekIndex),
+    [currentWeekIndex, top4WeekIndex, top8WeekIndex]
+  );
+  const rosterSlotsForNextWeek = useMemo(
+    () => getRosterSlotsForWeek(nextWeekIndex, top8WeekIndex, top4WeekIndex),
+    [nextWeekIndex, top4WeekIndex, top8WeekIndex]
+  );
+  const rosterSlotsForDisplayedWeek = useMemo(
+    () => getRosterSlotsForWeek(displayedWeekIndex, top8WeekIndex, top4WeekIndex),
+    [displayedWeekIndex, top4WeekIndex, top8WeekIndex]
+  );
+  const hasBlockSlotsNextWeek = useMemo(
+    () => rosterSlotsForNextWeek.some((slot) => slot.group === "The Block"),
+    [rosterSlotsForNextWeek]
+  );
+  const rosterGroupsForDisplayedWeek = useMemo(
+    () => getRosterGroupsForWeek(displayedWeekIndex, top8WeekIndex, top4WeekIndex),
+    [displayedWeekIndex, top4WeekIndex, top8WeekIndex]
+  );
+  const rosterGroupsForNextWeek = useMemo(
+    () => getRosterGroupsForWeek(nextWeekIndex, top8WeekIndex, top4WeekIndex),
+    [nextWeekIndex, top4WeekIndex, top8WeekIndex]
+  );
   const activeTeam = useMemo(() => {
     if (isPreseason || currentWeekIndex === null) {
       return emptyTeam;
@@ -1522,18 +1655,26 @@ function App() {
     return userTeams[currentWeekIndex] || emptyTeam;
   }, [currentWeekIndex, emptyTeam, isPreseason, userTeams]);
   const hasActiveTeam = useMemo(
-    () => rosterSlots.some((slot) => Boolean(activeTeam[slot.id])),
-    [activeTeam]
+    () => hasAnyPlayerForSlots(activeTeam, rosterSlotsForCurrentWeek),
+    [activeTeam, rosterSlotsForCurrentWeek]
   );
-  const savedNextTeam = useMemo(
+  const savedNextTeamBase = useMemo(
     () =>
       userTeams[nextWeekIndex] ||
       (hasActiveTeam ? activeTeam : emptyTeam),
     [activeTeam, emptyTeam, hasActiveTeam, nextWeekIndex, userTeams]
   );
-  const draftNextTeam = useMemo(
+  const savedNextTeam = useMemo(
+    () => trimTeamToSlots(savedNextTeamBase, rosterSlotsForNextWeek),
+    [rosterSlotsForNextWeek, savedNextTeamBase]
+  );
+  const draftNextTeamBase = useMemo(
     () => draftTeams[nextWeekIndex] || savedNextTeam,
     [draftTeams, nextWeekIndex, savedNextTeam]
+  );
+  const draftNextTeam = useMemo(
+    () => trimTeamToSlots(draftNextTeamBase, rosterSlotsForNextWeek),
+    [draftNextTeamBase, rosterSlotsForNextWeek]
   );
   const savedWeekIndices = useMemo(
     () =>
@@ -1544,8 +1685,8 @@ function App() {
     [userTeams]
   );
   const lockedWeeks = useMemo(
-    () => getLockedTeamWeeks(userTeams, currentWeekIndex),
-    [currentWeekIndex, userTeams]
+    () => getLockedTeamWeeks(userTeams, currentWeekIndex, top8WeekIndex, top4WeekIndex),
+    [currentWeekIndex, top4WeekIndex, top8WeekIndex, userTeams]
   );
   const firstSavedWeekIndex = savedWeekIndices.length
     ? savedWeekIndices[0]
@@ -1788,7 +1929,13 @@ function App() {
     authUser && !isPreseason && lockedWeeks.length === 0
   );
   const isDraftingWindow = isPreseason || isDrafting || isLateJoinWindow;
-  const isUnlimitedTransfers = isDraftingWindow;
+  const isTop8TransitionWeek = Boolean(
+    Number.isFinite(top8WeekIndex) && nextWeekIndex === top8WeekIndex
+  );
+  const isTop4TransitionWeek = Boolean(
+    Number.isFinite(top4WeekIndex) && nextWeekIndex === top4WeekIndex
+  );
+  const isUnlimitedTransfers = isDraftingWindow || isTop8TransitionWeek;
   const isTeamLocked = !isPreseason && Boolean(preseasonLocked);
   const isEditable =
     displayedWeekIndex === nextWeekIndex &&
@@ -1801,8 +1948,16 @@ function App() {
   const transferBaseTeam = hasActiveTeam ? activeTeam : savedNextTeam;
   const transfersUsed = isUnlimitedTransfers
     ? 0
-    : countTransfers(transferBaseTeam, draftNextTeam);
-  const hasDraftChanges = !areTeamsEqual(savedNextTeam, draftNextTeam);
+    : countTransfersForSlots(
+        transferBaseTeam,
+        draftNextTeam,
+        rosterSlotsForNextWeek
+      );
+  const hasDraftChanges = !areTeamsEqualForSlots(
+    savedNextTeam,
+    draftNextTeam,
+    rosterSlotsForNextWeek
+  );
   const hasBackupDraftChanges =
     isEditable &&
     (draftBackupPrefs.hohBackupPlayerId !== hohBackupPlayerId ||
@@ -1889,7 +2044,7 @@ function App() {
     if (!hasDraftChanges) {
       return [];
     }
-    return rosterSlots.reduce((summary, slot) => {
+    return rosterSlotsForNextWeek.reduce((summary, slot) => {
       const fromId = savedNextTeam[slot.id] || "";
       const toId = draftNextTeam[slot.id] || "";
       if (fromId === toId) {
@@ -1904,9 +2059,12 @@ function App() {
       });
       return summary;
     }, []);
-  }, [draftNextTeam, hasDraftChanges, playersById, savedNextTeam]);
+  }, [draftNextTeam, hasDraftChanges, rosterSlotsForNextWeek, savedNextTeam]);
   const canSaveTransfers = Boolean(
-    authUser && nextWeek && hasPendingChanges && isTeamComplete(draftNextTeam)
+    authUser &&
+      nextWeek &&
+      hasPendingChanges &&
+      isTeamCompleteForSlots(draftNextTeam, rosterSlotsForNextWeek)
   );
   const visibleTabs = useMemo(
     () => (isAdmin ? tabs : tabs.filter((tab) => tab.id !== "admin")),
@@ -1972,13 +2130,25 @@ function App() {
       if (!Number.isFinite(currentWeekIndex) || weekIndex > currentWeekIndex) {
         return team;
       }
+      const slotsForWeek = getRosterSlotsForWeek(
+        weekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      );
+      const backupSlotsByGroup = getBackupSlotsByGroupForWeek(
+        weekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      );
       const hohBackup = backupPrefs?.hohBackupPlayerId || "";
       const blockBackup = backupPrefs?.blockBackupPlayerId || "";
       if (!hohBackup && !blockBackup) {
         return team;
       }
-      const starterIds = new Set(Object.values(team).filter(Boolean));
-      const nextTeam = { ...team };
+      const starterIds = new Set(
+        slotsForWeek.map((slot) => team?.[slot.id]).filter(Boolean)
+      );
+      const nextTeam = trimTeamToSlots(team, slotsForWeek);
       const applyBackup = (groupId, backupId, otherBackupId) => {
         if (!backupId || backupId === otherBackupId) {
           return;
@@ -1990,7 +2160,11 @@ function App() {
         if (!backupPlayer || isPlayerInactiveForWeek(backupPlayer, weekIndex)) {
           return;
         }
-        const slotToFill = backupSlotsByGroup[groupId].find((slot) => {
+        const groupSlots = backupSlotsByGroup[groupId] || [];
+        if (!groupSlots.length) {
+          return;
+        }
+        const slotToFill = groupSlots.find((slot) => {
           const starterId = team?.[slot.id];
           if (!starterId) {
             return false;
@@ -2007,7 +2181,7 @@ function App() {
       applyBackup("block", blockBackup, hohBackup);
       return nextTeam;
     },
-    [currentWeekIndex, playersById]
+    [currentWeekIndex, playersById, top4WeekIndex, top8WeekIndex]
   );
   const viewBackupPrefs = useMemo(
     () =>
@@ -2023,8 +2197,13 @@ function App() {
     [displayedWeekIndex, getTeamWithBackups, viewBackupPrefs, viewTeam]
   );
   const backupAppliedSlots = useMemo(
-    () => getBackupAppliedSlots(viewTeam, viewTeamWithBackups),
-    [viewTeam, viewTeamWithBackups]
+    () =>
+      getBackupAppliedSlots(
+        viewTeam,
+        viewTeamWithBackups,
+        rosterSlotsForDisplayedWeek
+      ),
+    [rosterSlotsForDisplayedWeek, viewTeam, viewTeamWithBackups]
   );
 
   useEffect(() => {
@@ -2039,6 +2218,38 @@ function App() {
   }, [isEditable]);
 
   useEffect(() => {
+    const groupIds = new Set(
+      rosterGroupsForDisplayedWeek.map((group) => group.id)
+    );
+    const slotIds = new Set(
+      rosterGroupsForDisplayedWeek.flatMap((group) =>
+        group.slots.map((slot) => slot.id)
+      )
+    );
+    if (backupPanelOpen && !groupIds.has(backupPanelOpen)) {
+      setBackupPanelOpen(null);
+      setBackupSelectOpen(null);
+      setBackupMenuPosition(null);
+      backupMenuAnchorRef.current = null;
+    }
+    if (backupSelectOpen && !groupIds.has(backupSelectOpen)) {
+      setBackupSelectOpen(null);
+      setBackupMenuPosition(null);
+      backupMenuAnchorRef.current = null;
+    }
+    if (openSelectSlotId && !slotIds.has(openSelectSlotId)) {
+      setOpenSelectSlotId(null);
+      setSelectMenuPosition(null);
+      selectMenuAnchorRef.current = null;
+    }
+  }, [
+    backupPanelOpen,
+    backupSelectOpen,
+    openSelectSlotId,
+    rosterGroupsForDisplayedWeek
+  ]);
+
+  useEffect(() => {
     setBreakdownSelection(null);
   }, [displayedWeekIndex]);
 
@@ -2049,8 +2260,17 @@ function App() {
   }, [isEditable]);
 
   const backupPenaltyCount = backupAppliedSlots.size;
+  const displayedWeekMultiplier = useMemo(
+    () =>
+      getPointsMultiplierForWeek(
+        displayedWeekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      ),
+    [displayedWeekIndex, top4WeekIndex, top8WeekIndex]
+  );
   const displayedTeamPoints = useMemo(() => {
-    const basePoints = rosterSlots.reduce((sum, slot) => {
+    const basePoints = rosterSlotsForDisplayedWeek.reduce((sum, slot) => {
       const playerId = viewTeamWithBackups[slot.id];
       const player = playersById.get(playerId);
       return (
@@ -2063,21 +2283,38 @@ function App() {
         )
       );
     }, 0);
-    return basePoints - backupPenaltyCount * BACKUP_PENALTY;
+    const scaledPoints = applyPointsMultiplier(
+      basePoints,
+      displayedWeekMultiplier
+    );
+    return scaledPoints - backupPenaltyCount * BACKUP_PENALTY;
   }, [
     backupPenaltyCount,
+    displayedWeekMultiplier,
     displayedWeekIndex,
     playersById,
+    rosterSlotsForDisplayedWeek,
     viewTeamWithBackups,
     weekEvents
   ]);
   const teamMetricValue = isEditable ? transfersRemaining : displayedTeamPoints;
   const teamMetricLabel = isEditable ? "transfers" : "pts";
+  const showFormatTransitionBadge = Boolean(
+    isEditable && (isTop8TransitionWeek || isTop4TransitionWeek)
+  );
+  const formatTransitionLabel = isTop4TransitionWeek
+    ? "2x points from now on"
+    : "1.5x points from now on";
 
   const getTeamPointsForWeek = useCallback(
     (team, weekIndex, backupPrefs) => {
       const resolvedTeam = getTeamWithBackups(team, weekIndex, backupPrefs);
-      const basePoints = rosterSlots.reduce((sum, slot) => {
+      const slotsForWeek = getRosterSlotsForWeek(
+        weekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      );
+      const basePoints = slotsForWeek.reduce((sum, slot) => {
         const playerId = resolvedTeam?.[slot.id];
         const player = playersById.get(playerId);
         return (
@@ -2085,10 +2322,20 @@ function App() {
           getWeekPointsForPlayer(weekEvents, weekIndex, player, slot.group)
         );
       }, 0);
-      const penaltyCount = getBackupAppliedSlots(team, resolvedTeam).size;
-      return basePoints - penaltyCount * BACKUP_PENALTY;
+      const penaltyCount = getBackupAppliedSlots(
+        team,
+        resolvedTeam,
+        slotsForWeek
+      ).size;
+      const multiplier = getPointsMultiplierForWeek(
+        weekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      );
+      return applyPointsMultiplier(basePoints, multiplier) -
+        penaltyCount * BACKUP_PENALTY;
     },
-    [getTeamWithBackups, playersById, weekEvents]
+    [getTeamWithBackups, playersById, top4WeekIndex, top8WeekIndex, weekEvents]
   );
 
   const leaderboardEntries = useMemo(() => {
@@ -2272,6 +2519,24 @@ function App() {
   const leaderboardViewTeam = leaderboardViewUser
     ? leaderboardViewUser.teams?.[leaderboardViewWeekIndex] || emptyTeam
     : emptyTeam;
+  const leaderboardViewRosterSlots = useMemo(
+    () =>
+      getRosterSlotsForWeek(
+        leaderboardViewWeekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      ),
+    [leaderboardViewWeekIndex, top4WeekIndex, top8WeekIndex]
+  );
+  const leaderboardViewRosterGroups = useMemo(
+    () =>
+      getRosterGroupsForWeek(
+        leaderboardViewWeekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      ),
+    [leaderboardViewWeekIndex, top4WeekIndex, top8WeekIndex]
+  );
   const leaderboardViewBackupHistory = leaderboardViewUser?.backupHistory || {};
   const leaderboardViewBackupPrefs = useMemo(
     () =>
@@ -2303,9 +2568,10 @@ function App() {
     () =>
       getBackupAppliedSlots(
         leaderboardViewTeam,
-        leaderboardViewTeamWithBackups
+        leaderboardViewTeamWithBackups,
+        leaderboardViewRosterSlots
       ),
-    [leaderboardViewTeam, leaderboardViewTeamWithBackups]
+    [leaderboardViewRosterSlots, leaderboardViewTeam, leaderboardViewTeamWithBackups]
   );
   const leaderboardViewWeekPoints = useMemo(
     () =>
@@ -2320,6 +2586,15 @@ function App() {
       leaderboardViewTeam,
       leaderboardViewWeekIndex
     ]
+  );
+  const leaderboardViewWeekMultiplier = useMemo(
+    () =>
+      getPointsMultiplierForWeek(
+        leaderboardViewWeekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      ),
+    [leaderboardViewWeekIndex, top4WeekIndex, top8WeekIndex]
   );
   const leaderboardViewWeekPosition = leaderboardViewWeeks.indexOf(
     leaderboardViewWeekIndex
@@ -2433,6 +2708,16 @@ function App() {
     setDisplayedWeekIndex(nextWeekIndex);
     try {
       const batch = writeBatch(db);
+      const currentWeekSlots = getRosterSlotsForWeek(
+        currentWeekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      );
+      const nextWeekSlots = getRosterSlotsForWeek(
+        nextWeekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      );
       const nextDeadline = getNextDeadlineTimestamp(weeks, nextWeekIndex);
       batch.set(
         seasonRef,
@@ -2457,10 +2742,13 @@ function App() {
             blockBackupPlayerId: data.blockBackupPlayerId || ""
           };
           const patch = {};
-          if (hasAnyPlayer(currentTeam) && !hasAnyPlayer(nextTeam)) {
+          if (
+            hasAnyPlayerForSlots(currentTeam, currentWeekSlots) &&
+            !hasAnyPlayerForSlots(nextTeam, nextWeekSlots)
+          ) {
             patch.teams = {
               ...teams,
-              [nextWeekIndex]: currentTeam
+              [nextWeekIndex]: trimTeamToSlots(currentTeam, nextWeekSlots)
             };
           }
           if (!hasBackupEntry) {
@@ -2502,6 +2790,8 @@ function App() {
     nextWeekIndex,
     requireAdminSession,
     seasonRef,
+    top4WeekIndex,
+    top8WeekIndex,
     weeks
   ]);
 
@@ -2544,14 +2834,49 @@ function App() {
     weeks
   ]);
 
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+    const clampedTop8 = clampFormatWeekIndex(top8WeekIndex, weeks.length);
+    let clampedTop4 = clampFormatWeekIndex(top4WeekIndex, weeks.length);
+    if (
+      Number.isFinite(clampedTop8) &&
+      Number.isFinite(clampedTop4) &&
+      clampedTop4 < clampedTop8
+    ) {
+      clampedTop4 = clampedTop8;
+    }
+    if (clampedTop8 === top8WeekIndex && clampedTop4 === top4WeekIndex) {
+      return;
+    }
+    setTop8WeekIndex(clampedTop8);
+    setTop4WeekIndex(clampedTop4);
+    updateSeasonDoc({
+      top8WeekIndex: clampedTop8,
+      top4WeekIndex: clampedTop4
+    }).catch(() => {
+      setAuthError("Unable to sync format weeks.");
+    });
+  }, [
+    isAdmin,
+    top4WeekIndex,
+    top8WeekIndex,
+    updateSeasonDoc,
+    weeks.length
+  ]);
+
   const handleTeamChange = (slotId, playerId) => {
     if (!isEditable || !nextWeek || !authUser) {
       return;
     }
+    const activeBlockBackup = hasBlockSlotsNextWeek
+      ? draftBackupPrefs.blockBackupPlayerId
+      : "";
     if (
       playerId &&
       (playerId === draftBackupPrefs.hohBackupPlayerId ||
-        playerId === draftBackupPrefs.blockBackupPlayerId)
+        playerId === activeBlockBackup)
     ) {
       setTransferError("Backup player must be different from starters.");
       return;
@@ -2559,9 +2884,16 @@ function App() {
     setTransferError("");
     setDraftTeams((prev) => {
       const currentDraft = prev[nextWeekIndex] || savedNextTeam;
-      const updated = { ...currentDraft, [slotId]: playerId };
+      const updated = trimTeamToSlots(
+        { ...currentDraft, [slotId]: playerId },
+        rosterSlotsForNextWeek
+      );
       if (!isUnlimitedTransfers) {
-        const used = countTransfers(transferBaseTeam, updated);
+        const used = countTransfersForSlots(
+          transferBaseTeam,
+          updated,
+          rosterSlotsForNextWeek
+        );
         if (used > transferBank) {
           setTransferError("No transfers left. Undo a move to make another change.");
           return prev;
@@ -2579,16 +2911,25 @@ function App() {
     if (!isEditable || !authUser) {
       return;
     }
+    if (groupId === "block" && !hasBlockSlotsNextWeek) {
+      return;
+    }
     const otherBackup =
       groupId === "hoh"
-        ? draftBackupPrefs.blockBackupPlayerId
+        ? hasBlockSlotsNextWeek
+          ? draftBackupPrefs.blockBackupPlayerId
+          : ""
         : draftBackupPrefs.hohBackupPlayerId;
     if (playerId && playerId === otherBackup) {
       setTransferError("Backup players must be different.");
       return;
     }
     if (playerId) {
-      const starterIds = new Set(Object.values(draftNextTeam).filter(Boolean));
+      const starterIds = new Set(
+        rosterSlotsForNextWeek
+          .map((slot) => draftNextTeam[slot.id])
+          .filter(Boolean)
+      );
       if (starterIds.has(playerId)) {
         setTransferError("Backup player must be different from starters.");
         return;
@@ -2654,7 +2995,7 @@ function App() {
     if (!authUser || !nextWeek || !canSaveTransfers) {
       return;
     }
-    const updated = { ...draftNextTeam };
+    const updated = trimTeamToSlots(draftNextTeam, rosterSlotsForNextWeek);
     const nextTeams = { ...userTeams, [nextWeekIndex]: updated };
     const currentBackupPrefs = {
       hohBackupPlayerId,
@@ -2666,7 +3007,12 @@ function App() {
     };
     let nextBackupHistory = { ...backupHistory };
     if (Number.isFinite(currentWeekIndex)) {
-      const lockedWeeks = getLockedTeamWeeks(userTeams, currentWeekIndex);
+      const lockedWeeks = getLockedTeamWeeks(
+        userTeams,
+        currentWeekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      );
       lockedWeeks.forEach((week) => {
         if (!nextBackupHistory?.[week]) {
           nextBackupHistory[week] = currentBackupPrefs;
@@ -2704,10 +3050,17 @@ function App() {
   };
 
   const handlePreseasonSave = () => {
-    if (!nextWeek || !isTeamComplete(draftNextTeam) || !authUser) {
+    if (
+      !nextWeek ||
+      !isTeamCompleteForSlots(draftNextTeam, rosterSlotsForNextWeek) ||
+      !authUser
+    ) {
       return;
     }
-    const nextTeams = { ...userTeams, [nextWeekIndex]: draftNextTeam };
+    const nextTeams = {
+      ...userTeams,
+      [nextWeekIndex]: trimTeamToSlots(draftNextTeam, rosterSlotsForNextWeek)
+    };
     const currentBackupPrefs = {
       hohBackupPlayerId,
       blockBackupPlayerId
@@ -2718,7 +3071,12 @@ function App() {
     };
     let nextBackupHistory = { ...backupHistory };
     if (Number.isFinite(currentWeekIndex)) {
-      const lockedWeeks = getLockedTeamWeeks(userTeams, currentWeekIndex);
+      const lockedWeeks = getLockedTeamWeeks(
+        userTeams,
+        currentWeekIndex,
+        top8WeekIndex,
+        top4WeekIndex
+      );
       lockedWeeks.forEach((week) => {
         if (!nextBackupHistory?.[week]) {
           nextBackupHistory[week] = currentBackupPrefs;
@@ -3246,6 +3604,8 @@ function App() {
         weeks: seededWeeks,
         weekEvents: {},
         currentWeekIndex: null,
+        top8WeekIndex: null,
+        top4WeekIndex: null,
         nextDeadline: getNextDeadlineTimestamp(seededWeeks, null),
         updatedAt: serverTimestamp()
       });
@@ -3277,6 +3637,8 @@ function App() {
         {
           currentWeekIndex: null,
           weekEvents: {},
+          top8WeekIndex: null,
+          top4WeekIndex: null,
           nextDeadline: getNextDeadlineTimestamp(weeks, null),
           updatedAt: serverTimestamp()
         },
@@ -3325,6 +3687,8 @@ function App() {
       await batch.commit();
       setCurrentWeekIndex(null);
       setWeekEvents({});
+      setTop8WeekIndex(null);
+      setTop4WeekIndex(null);
       setDisplayedWeekIndex(0);
       setLeaderboardWeekIndex(0);
       setTransferError("");
@@ -3439,7 +3803,34 @@ function App() {
         players: playersForWeek
       };
     });
+    const evictionsByWeek = Array(weeks.length).fill(0);
+    evictionMap.forEach((weekIndex) => {
+      if (Number.isFinite(weekIndex) && evictionsByWeek[weekIndex] !== undefined) {
+        evictionsByWeek[weekIndex] += 1;
+      }
+    });
+    let remainingPlayers = playerIds.length;
+    let nextTop8WeekIndex = null;
+    let nextTop4WeekIndex = null;
+    for (let weekIndex = 0; weekIndex < weeks.length; weekIndex += 1) {
+      if (nextTop8WeekIndex === null && remainingPlayers <= 8) {
+        nextTop8WeekIndex = weekIndex;
+      }
+      if (nextTop4WeekIndex === null && remainingPlayers <= 4) {
+        nextTop4WeekIndex = weekIndex;
+      }
+      remainingPlayers -= evictionsByWeek[weekIndex] || 0;
+    }
+    if (
+      Number.isFinite(nextTop8WeekIndex) &&
+      Number.isFinite(nextTop4WeekIndex) &&
+      nextTop4WeekIndex < nextTop8WeekIndex
+    ) {
+      nextTop4WeekIndex = nextTop8WeekIndex;
+    }
     setWeekEvents(nextWeekEvents);
+    setTop8WeekIndex(nextTop8WeekIndex);
+    setTop4WeekIndex(nextTop4WeekIndex);
     setPlayers((prev) =>
       prev.map((player) => {
         const evictionWeekIndex = evictionMap.get(player.id);
@@ -3455,7 +3846,12 @@ function App() {
     const batch = writeBatch(db);
     batch.set(
       seasonRef,
-      { weekEvents: nextWeekEvents, updatedAt: serverTimestamp() },
+      {
+        weekEvents: nextWeekEvents,
+        top8WeekIndex: nextTop8WeekIndex,
+        top4WeekIndex: nextTop4WeekIndex,
+        updatedAt: serverTimestamp()
+      },
       { merge: true }
     );
     playerIds.forEach((playerId) => {
@@ -3713,6 +4109,62 @@ function App() {
     });
   };
 
+  function clampFormatWeekIndex(value, length) {
+    if (!Number.isFinite(value) || length <= 0) {
+      return null;
+    }
+    const maxIndex = Math.max(length - 1, 0);
+    return Math.min(Math.max(Math.trunc(value), 0), maxIndex);
+  }
+
+  function normalizeFormatWeekIndex(value) {
+    if (!value || weeks.length === 0) {
+      return null;
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return null;
+    }
+    const maxIndex = Math.max(weeks.length - 1, 0);
+    return Math.min(Math.max(Math.trunc(numeric) - 1, 0), maxIndex);
+  }
+
+  const handleTop8WeekChange = (event) => {
+    const nextTop8 = normalizeFormatWeekIndex(event.target.value);
+    let nextTop4 = top4WeekIndex;
+    if (
+      Number.isFinite(nextTop4) &&
+      Number.isFinite(nextTop8) &&
+      nextTop4 < nextTop8
+    ) {
+      nextTop4 = nextTop8;
+    }
+    setTop8WeekIndex(nextTop8);
+    if (nextTop4 !== top4WeekIndex) {
+      setTop4WeekIndex(nextTop4);
+    }
+    updateSeasonDoc({
+      top8WeekIndex: nextTop8,
+      ...(nextTop4 !== top4WeekIndex ? { top4WeekIndex: nextTop4 } : {})
+    }).catch(() => {
+      setAuthError("Unable to update the top 8 week.");
+    });
+  };
+
+  const handleTop4WeekChange = (event) => {
+    const nextTop4 = normalizeFormatWeekIndex(event.target.value);
+    const normalizedTop4 =
+      Number.isFinite(nextTop4) &&
+      Number.isFinite(top8WeekIndex) &&
+      nextTop4 < top8WeekIndex
+        ? top8WeekIndex
+        : nextTop4;
+    setTop4WeekIndex(normalizedTop4);
+    updateSeasonDoc({ top4WeekIndex: normalizedTop4 }).catch(() => {
+      setAuthError("Unable to update the top 4 week.");
+    });
+  };
+
   const handleAddWeek = async () => {
     const hasAdmin = await requireAdminSession();
     if (!hasAdmin) {
@@ -3753,13 +4205,32 @@ function App() {
       currentWeekIndex === null
         ? null
         : Math.min(currentWeekIndex, Math.max(nextWeeks.length - 1, 0));
+    const nextTop8WeekIndex = clampFormatWeekIndex(
+      top8WeekIndex,
+      nextWeeks.length
+    );
+    let nextTop4WeekIndex = clampFormatWeekIndex(
+      top4WeekIndex,
+      nextWeeks.length
+    );
+    if (
+      Number.isFinite(nextTop8WeekIndex) &&
+      Number.isFinite(nextTop4WeekIndex) &&
+      nextTop4WeekIndex < nextTop8WeekIndex
+    ) {
+      nextTop4WeekIndex = nextTop8WeekIndex;
+    }
     setWeeks(nextWeeks);
     setWeekEvents(nextWeekEvents);
     setCurrentWeekIndex(nextCurrentWeekIndex);
+    setTop8WeekIndex(nextTop8WeekIndex);
+    setTop4WeekIndex(nextTop4WeekIndex);
     updateSeasonDoc({
       weeks: nextWeeks,
       weekEvents: nextWeekEvents,
-      currentWeekIndex: nextCurrentWeekIndex
+      currentWeekIndex: nextCurrentWeekIndex,
+      top8WeekIndex: nextTop8WeekIndex,
+      top4WeekIndex: nextTop4WeekIndex
     }).catch(() => {
       setAuthError("Unable to remove the week.");
     });
@@ -3786,7 +4257,12 @@ function App() {
       return;
     }
     setLeaderboardViewUserId(userId);
-    const lockedWeeks = getLockedTeamWeeks(user.teams, currentWeekIndex);
+    const lockedWeeks = getLockedTeamWeeks(
+      user.teams,
+      currentWeekIndex,
+      top8WeekIndex,
+      top4WeekIndex
+    );
     if (lockedWeeks.length) {
       setLeaderboardViewWeekIndex(lockedWeeks[lockedWeeks.length - 1]);
       return;
@@ -3848,22 +4324,27 @@ function App() {
         return new Set();
       }
       const selected = new Set(
-        rosterSlots
+        rosterSlotsForNextWeek
           .filter((item) => item.id !== slotId)
           .map((item) => draftNextTeam[item.id])
           .filter(Boolean)
       );
-      [
-        draftBackupPrefs.hohBackupPlayerId,
-        draftBackupPrefs.blockBackupPlayerId
-      ]
-        .filter(Boolean)
-        .forEach((backupId) => {
-          selected.add(backupId);
-        });
+      const backupIds = [draftBackupPrefs.hohBackupPlayerId];
+      if (hasBlockSlotsNextWeek) {
+        backupIds.push(draftBackupPrefs.blockBackupPlayerId);
+      }
+      backupIds.filter(Boolean).forEach((backupId) => {
+        selected.add(backupId);
+      });
       return selected;
     },
-    [draftBackupPrefs, draftNextTeam, isEditable]
+    [
+      draftBackupPrefs,
+      draftNextTeam,
+      hasBlockSlotsNextWeek,
+      isEditable,
+      rosterSlotsForNextWeek
+    ]
   );
 
   const goToLeaderboardPreviousWeek = () => {
@@ -3894,9 +4375,16 @@ function App() {
     const isEvictedForWeek = isPlayerInactiveForWeek(player, weekIndex);
     const isBackupApplied = backupAppliedSlots?.has(slot.id);
     const slotPenalty = isBackupApplied ? BACKUP_PENALTY : 0;
+    const slotMultiplier = getPointsMultiplierForWeek(
+      weekIndex,
+      top8WeekIndex,
+      top4WeekIndex
+    );
     const slotPoints =
-      getWeekPointsForPlayer(weekEvents, weekIndex, player, slot.group) -
-      slotPenalty;
+      applyPointsMultiplier(
+        getWeekPointsForPlayer(weekEvents, weekIndex, player, slot.group),
+        slotMultiplier
+      ) - slotPenalty;
     const pointsClass =
       slotPoints > 0 ? "positive" : slotPoints < 0 ? "negative" : "";
 
@@ -3961,11 +4449,14 @@ function App() {
       isEditable &&
       (draftNextTeam[slot.id] || "") !== (savedNextTeam[slot.id] || "");
     const slotPoints =
-      getWeekPointsForPlayer(
-        weekEvents,
-        displayedWeekIndex,
-        player,
-        slot.group
+      applyPointsMultiplier(
+        getWeekPointsForPlayer(
+          weekEvents,
+          displayedWeekIndex,
+          player,
+          slot.group
+        ),
+        displayedWeekMultiplier
       ) - slotPenalty;
     const pointsClass =
       slotPoints > 0 ? "positive" : slotPoints < 0 ? "negative" : "";
@@ -4760,7 +5251,7 @@ function App() {
                   <p className="empty-note">No changes to save yet.</p>
                 ) : (
                   <div className="transfer-groups">
-                    {rosterGroups.map((group) => {
+                    {rosterGroupsForNextWeek.map((group) => {
                       const groupChanges = transferSummary.filter(
                         (change) => change.groupId === group.id
                       );
@@ -4835,7 +5326,10 @@ function App() {
                   </div>
                 )}
                 <p className="helper">
-                  Transfers used: {transfersUsed} / {transferBank}
+                  Transfers used:{" "}
+                  {isUnlimitedTransfers
+                    ? "Unlimited"
+                    : `${transfersUsed} / ${transferBank}`}
                 </p>
               </div>
               <div className="modal-actions">
@@ -5067,7 +5561,7 @@ function App() {
                           </span>
                         </div>
                       </div>
-                      {rosterGroups.map((group) => {
+                      {leaderboardViewRosterGroups.map((group) => {
                         const breakdownPlayer =
                           leaderboardBreakdownSelection?.groupId === group.id
                             ? playersById.get(
@@ -5089,21 +5583,28 @@ function App() {
                               group.title
                             )
                           : [];
+                        const breakdownEntriesScaled = applyBreakdownMultiplier(
+                          breakdownEntriesBase,
+                          leaderboardViewWeekMultiplier
+                        );
                         const breakdownEntries = breakdownPenaltyApplied
                           ? [
-                              ...breakdownEntriesBase,
+                              ...breakdownEntriesScaled,
                               {
                                 label: "Came on as backup",
                                 points: -BACKUP_PENALTY
                               }
                             ]
-                          : breakdownEntriesBase;
+                          : breakdownEntriesScaled;
                         const breakdownPoints = breakdownPlayer
-                          ? getWeekPointsForPlayer(
-                              weekEvents,
-                              leaderboardViewWeekIndex,
-                              breakdownPlayer,
-                              group.title
+                          ? applyPointsMultiplier(
+                              getWeekPointsForPlayer(
+                                weekEvents,
+                                leaderboardViewWeekIndex,
+                                breakdownPlayer,
+                                group.title
+                              ),
+                              leaderboardViewWeekMultiplier
                             ) -
                             (breakdownPenaltyApplied ? BACKUP_PENALTY : 0)
                           : 0;
@@ -5122,7 +5623,11 @@ function App() {
                                 <p>{group.description}</p>
                               </div>
                             </div>
-                            <div className={`slot-grid slot-grid--${group.id}`}>
+                            <div
+                              className={`slot-grid slot-grid--${group.id} ${
+                                group.slots.length === 1 ? "slot-grid--single" : ""
+                              }`}
+                            >
                               {group.slots.map((slot) =>
                                 renderReadOnlySlot(
                                   slot,
@@ -5288,10 +5793,15 @@ function App() {
                       <ChevronIcon direction="right" />
                     </button>
                   </div>
+                  {showFormatTransitionBadge && (
+                    <div className="team-format-badge">
+                      {formatTransitionLabel}
+                    </div>
+                  )}
                 </div>
               )}
 
-            {rosterGroups.map((group) => {
+            {rosterGroupsForDisplayedWeek.map((group) => {
               const breakdownPlayer =
                 breakdownSelection?.groupId === group.id
                   ? playersById.get(breakdownSelection.playerId)
@@ -5309,18 +5819,25 @@ function App() {
                     group.title
                   )
                 : [];
+              const breakdownEntriesScaled = applyBreakdownMultiplier(
+                breakdownEntriesBase,
+                displayedWeekMultiplier
+              );
               const breakdownEntries = breakdownPenaltyApplied
                 ? [
-                    ...breakdownEntriesBase,
+                    ...breakdownEntriesScaled,
                     { label: "Came on as backup", points: -BACKUP_PENALTY }
                   ]
-                : breakdownEntriesBase;
+                : breakdownEntriesScaled;
               const breakdownPoints = breakdownPlayer
-                ? getWeekPointsForPlayer(
-                    weekEvents,
-                    displayedWeekIndex,
-                    breakdownPlayer,
-                    group.title
+                ? applyPointsMultiplier(
+                    getWeekPointsForPlayer(
+                      weekEvents,
+                      displayedWeekIndex,
+                      breakdownPlayer,
+                      group.title
+                    ),
+                    displayedWeekMultiplier
                   ) - (breakdownPenaltyApplied ? BACKUP_PENALTY : 0)
                 : 0;
               const breakdownInactive = breakdownPlayer
@@ -5330,18 +5847,27 @@ function App() {
               const activeBackupPrefs = isEditable
                 ? draftBackupPrefs
                 : { hohBackupPlayerId, blockBackupPlayerId };
+              const activeBlockBackupId = isEditable
+                ? hasBlockSlotsNextWeek
+                  ? activeBackupPrefs.blockBackupPlayerId
+                  : ""
+                : activeBackupPrefs.blockBackupPlayerId;
               const backupId =
                 group.id === "hoh"
                   ? activeBackupPrefs.hohBackupPlayerId
-                  : activeBackupPrefs.blockBackupPlayerId;
+                  : activeBlockBackupId;
               const otherBackupId =
                 group.id === "hoh"
-                  ? activeBackupPrefs.blockBackupPlayerId
+                  ? activeBlockBackupId
                   : activeBackupPrefs.hohBackupPlayerId;
               const backupPlayer = backupId ? playersById.get(backupId) : null;
               const backupMenuOpen = backupSelectOpen === group.id;
               const backupStarterIds = isEditable
-                ? new Set(Object.values(draftNextTeam).filter(Boolean))
+                ? new Set(
+                    rosterSlotsForNextWeek
+                      .map((slot) => draftNextTeam[slot.id])
+                      .filter(Boolean)
+                  )
                 : new Set();
               const backupDisabledIds = new Set(
                 [...backupStarterIds, otherBackupId].filter(Boolean)
@@ -5397,7 +5923,11 @@ function App() {
                             <ChevronIcon direction={isBackupOpen ? "left" : "right"} />
                           </button>
                         </div>
-                        <div className={`slot-grid slot-grid--${group.id}`}>
+                        <div
+                          className={`slot-grid slot-grid--${group.id} ${
+                            group.slots.length === 1 ? "slot-grid--single" : ""
+                          }`}
+                        >
                           {group.slots.map((slot) =>
                             renderSlotCard(slot, isBackupOpen)
                           )}
@@ -5691,7 +6221,7 @@ function App() {
                     disabled={
                       !authUser ||
                       !nextWeek ||
-                      !isTeamComplete(draftNextTeam)
+                      !isTeamCompleteForSlots(draftNextTeam, rosterSlotsForNextWeek)
                     }
                   >
                     Save team
@@ -5904,6 +6434,50 @@ function App() {
                 <div className="card-title">
                   <h2>Weeks and deadlines</h2>
                   <p>Edit deadlines or add new weeks.</p>
+                </div>
+                <div className="admin-form">
+                  <label>
+                    Top 8 starts
+                    <select
+                      value={
+                        Number.isFinite(top8WeekIndex)
+                          ? String(top8WeekIndex + 1)
+                          : ""
+                      }
+                      onChange={handleTop8WeekChange}
+                      disabled={weeks.length === 0}
+                    >
+                      <option value="">Not set</option>
+                      {weeks.map((week, index) => (
+                        <option key={`top8-${week.id}`} value={index + 1}>
+                          {week.name || `Week ${index + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Top 4 starts
+                    <select
+                      value={
+                        Number.isFinite(top4WeekIndex)
+                          ? String(top4WeekIndex + 1)
+                          : ""
+                      }
+                      onChange={handleTop4WeekChange}
+                      disabled={weeks.length === 0}
+                    >
+                      <option value="">Not set</option>
+                      {weeks.map((week, index) => (
+                        <option key={`top4-${week.id}`} value={index + 1}>
+                          {week.name || `Week ${index + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="helper">
+                    Top 8 uses 2 HOH + 1 Block (1.5x points). Top 4 uses 1 HOH
+                    (2x points).
+                  </p>
                 </div>
                 {(!seasonExists || weeks.length === 0) && (
                   <div className="empty-state">

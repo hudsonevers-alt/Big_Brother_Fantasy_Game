@@ -1603,6 +1603,21 @@ h2 {
   margin-top: 0.25rem;
 }
 
+.team-format-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(67, 186, 229, 0.16);
+  border: 1px solid rgba(67, 186, 229, 0.35);
+  color: var(--ink-2);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .team-metric {
   display: grid;
   gap: 0.15rem;
@@ -1786,6 +1801,21 @@ h2 {
 .slot-grid--hoh .slot-card:nth-child(3) {
   grid-column: 1 / -1;
   justify-self: center;
+  width: calc((100% - var(--slot-grid-gap)) / 2);
+  max-width: 100%;
+}
+
+.slot-grid--single {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.slot-grid--single.slot-grid--hoh,
+.slot-grid--single.slot-grid--block {
+  grid-template-columns: 1fr;
+}
+
+.slot-grid--single .slot-card {
   width: calc((100% - var(--slot-grid-gap)) / 2);
   max-width: 100%;
 }
