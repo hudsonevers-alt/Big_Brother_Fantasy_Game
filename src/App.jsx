@@ -291,6 +291,15 @@ const ChevronIcon = ({ direction = "right" }) => (
   </svg>
 );
 
+const GearIcon = () => (
+  <svg className="icon icon-gear" viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Zm9.1 3.4a7.34 7.34 0 0 0-.1-1l2-1.5-2-3.5-2.4.9a8.18 8.18 0 0 0-1.7-1l-.4-2.6H11.6l-.4 2.6a8.18 8.18 0 0 0-1.7 1l-2.4-.9-2 3.5 2 1.5a7.34 7.34 0 0 0 0 2l-2 1.5 2 3.5 2.4-.9a8.18 8.18 0 0 0 1.7 1l.4 2.6h4.1l.4-2.6a8.18 8.18 0 0 0 1.7-1l2.4.9 2-3.5-2-1.5a7.34 7.34 0 0 0 .1-1Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
 const CloseIcon = () => (
   <svg className="icon icon-close" viewBox="0 0 24 24" aria-hidden="true">
     <path
@@ -718,6 +727,7 @@ function App() {
   const [displayNameError, setDisplayNameError] = useState("");
   const [profileAvatarDraft, setProfileAvatarDraft] = useState("");
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [transferConfirmOpen, setTransferConfirmOpen] = useState(false);
   const [breakdownSelection, setBreakdownSelection] = useState(null);
   const [leaderboardBreakdownSelection, setLeaderboardBreakdownSelection] =
@@ -863,6 +873,7 @@ function App() {
 
   const closeAllModals = useCallback(() => {
     setProfileModalOpen(false);
+    setSettingsModalOpen(false);
     setTransferConfirmOpen(false);
     setLeaderboardViewUserId(null);
     setBreakdownSelection(null);
@@ -1051,7 +1062,7 @@ function App() {
       };
     }
     authUser
-      .getIdTokenResult()
+      .getIdTokenResult(true)
       .then((token) => {
         if (active) {
           setIsAdmin(Boolean(token?.claims?.admin));
@@ -1198,6 +1209,7 @@ function App() {
       setTransferBank(STARTING_TRANSFERS);
       setPreseasonLocked(false);
       setProfileModalOpen(false);
+      setSettingsModalOpen(false);
       setDisplayNameError("");
       setTransferConfirmOpen(false);
       setBreakdownSelection(null);
@@ -1510,6 +1522,10 @@ function App() {
         .sort((a, b) => a - b),
     [userTeams]
   );
+  const lockedWeeks = useMemo(
+    () => getLockedTeamWeeks(userTeams, currentWeekIndex),
+    [currentWeekIndex, userTeams]
+  );
   const firstSavedWeekIndex = savedWeekIndices.length
     ? savedWeekIndices[0]
     : null;
@@ -1744,7 +1760,11 @@ function App() {
   const deadlineLabel = nextWeek ? formatDeadline(nextWeek.deadline) : "Add a week";
   const hasCommittedTeam = Boolean(userProfile?.hasCommittedTeam);
   const isDrafting = Boolean(authUser && !hasCommittedTeam);
-  const isUnlimitedTransfers = isPreseason || isDrafting;
+  const isLateJoinWindow = Boolean(
+    authUser && !isPreseason && lockedWeeks.length === 0
+  );
+  const isDraftingWindow = isPreseason || isDrafting || isLateJoinWindow;
+  const isUnlimitedTransfers = isDraftingWindow;
   const isTeamLocked = !isPreseason && Boolean(preseasonLocked);
   const isEditable =
     displayedWeekIndex === nextWeekIndex &&
@@ -1840,6 +1860,7 @@ function App() {
     }
   }, [activeTab, authUser, chatScope, markChatRead, selectedChatLeagueId]);
   const showProfileModal = Boolean(profileModalOpen);
+  const showSettingsModal = Boolean(settingsModalOpen);
   const transferSummary = useMemo(() => {
     if (!hasDraftChanges) {
       return [];
@@ -1892,13 +1913,12 @@ function App() {
       backupDraftInitRef.current = true;
     }
   }, [authUser, blockBackupPlayerId, hohBackupPlayerId, isEditable]);
-  const teamHeaderTitle =
-    isPreseason || isDrafting
-      ? "Create your team"
-      : isEditable
-        ? "Pick your team"
-        : "Your team";
-  const showTeamHeading = isEditable || isPreseason || isDrafting;
+  const teamHeaderTitle = isDraftingWindow
+    ? "Create your team"
+    : isEditable
+      ? "Pick your team"
+      : "Your team";
+  const showTeamHeading = isEditable || isDraftingWindow;
   const viewTeam = useMemo(() => {
     if (isPreseason) {
       return draftNextTeam;
@@ -2066,16 +2086,20 @@ function App() {
           blockBackupPlayerId: user.blockBackupPlayerId || ""
         };
         const backupHistory = user.backupHistory || {};
-        const seasonTotal = weeks.reduce(
-          (sum, _week, index) =>
-            sum +
-            getTeamPointsForWeek(
-              teams[index] || emptyTeam,
-              index,
-              getBackupPrefsForWeek(index, backupPrefs, backupHistory)
-            ),
-          0
-        );
+        const maxWeekIndex = Number.isFinite(currentWeekIndex)
+          ? currentWeekIndex
+          : weeks.length - 1;
+        let seasonTotal = 0;
+        for (let index = 0; index <= maxWeekIndex; index += 1) {
+          if (index < 0) {
+            continue;
+          }
+          seasonTotal += getTeamPointsForWeek(
+            teams[index] || emptyTeam,
+            index,
+            getBackupPrefsForWeek(index, backupPrefs, backupHistory)
+          );
+        }
         const weekPoints = getTeamPointsForWeek(
           teams[leaderboardWeekIndex] || emptyTeam,
           leaderboardWeekIndex,
@@ -2093,6 +2117,7 @@ function App() {
       })
       .sort((a, b) => b.points - a.points);
   }, [
+    currentWeekIndex,
     emptyTeam,
     getTeamPointsForWeek,
     leaderboardMode,
@@ -2123,16 +2148,20 @@ function App() {
           blockBackupPlayerId: user.blockBackupPlayerId || ""
         };
         const backupHistory = user.backupHistory || {};
-        const seasonTotal = weeks.reduce(
-          (sum, _week, index) =>
-            sum +
-            getTeamPointsForWeek(
-              teams[index] || emptyTeam,
-              index,
-              getBackupPrefsForWeek(index, backupPrefs, backupHistory)
-            ),
-          0
-        );
+        const maxWeekIndex = Number.isFinite(currentWeekIndex)
+          ? currentWeekIndex
+          : weeks.length - 1;
+        let seasonTotal = 0;
+        for (let index = 0; index <= maxWeekIndex; index += 1) {
+          if (index < 0) {
+            continue;
+          }
+          seasonTotal += getTeamPointsForWeek(
+            teams[index] || emptyTeam,
+            index,
+            getBackupPrefsForWeek(index, backupPrefs, backupHistory)
+          );
+        }
         const weekPoints = getTeamPointsForWeek(
           teams[leaderboardWeekIndex] || emptyTeam,
           leaderboardWeekIndex,
@@ -2148,6 +2177,7 @@ function App() {
       })
       .sort((a, b) => b.points - a.points);
   }, [
+    currentWeekIndex,
     emptyTeam,
     getTeamPointsForWeek,
     leaderboardMode,
@@ -4489,39 +4519,6 @@ function App() {
             </div>
           </div>
         </div>
-        {authUser && (
-          <div className="account-card account-preferences">
-            <div>
-              <p className="account-name">Notifications</p>
-              <p className="account-status">
-                {canUsePush
-                  ? "Get reminders before weekly deadlines."
-                  : "Available on the mobile app only."}
-              </p>
-            </div>
-            <button
-              type="button"
-              className={pushOptIn ? "ghost" : ""}
-              onClick={handleTogglePushOptIn}
-              disabled={!canUsePush || pushBusy}
-            >
-              {pushBusy ? "Updating..." : pushOptIn ? "Disable" : "Enable"}
-            </button>
-          </div>
-        )}
-        {authUser && (
-          <div className="account-card account-preferences account-danger">
-            <div>
-              <p className="account-name">Delete account</p>
-              <p className="account-status">
-                Removes your teams and deletes leagues you own.
-              </p>
-            </div>
-            <button type="button" className="danger" onClick={handleDeleteAccount}>
-              Delete
-            </button>
-          </div>
-        )}
         {!authUser && activeTab === "team" && (
           <p className="notice account-notice">
             Sign in to save your team and appear on the leaderboard.
@@ -4596,10 +4593,85 @@ function App() {
                   </div>
                 </div>
               </div>
-              <div className="modal-actions">
+              <div
+                className={`modal-actions ${
+                  needsDisplayName ? "" : "profile-actions"
+                }`}
+              >
+                {!needsDisplayName && (
+                  <button
+                    type="button"
+                    className="settings-gear"
+                    onClick={() => setSettingsModalOpen(true)}
+                    aria-label="Open settings"
+                  >
+                    <GearIcon />
+                  </button>
+                )}
                 <button type="button" onClick={handleSaveProfile}>
                   Save profile
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showSettingsModal && (
+          <div className="modal-backdrop">
+            <div className="modal settings-modal" role="dialog" aria-modal="true">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Settings</p>
+                  <h2>Settings</h2>
+                  <p className="page-subtitle">
+                    Manage notifications and account access.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="modal-close"
+                  onClick={() => setSettingsModalOpen(false)}
+                  aria-label="Close settings"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+              <div className="modal-body">
+                <div className="settings-list">
+                  <div className="account-card account-preferences">
+                    <div>
+                      <p className="account-name">Notifications</p>
+                      <p className="account-status">
+                        {canUsePush
+                          ? "Get reminders before weekly deadlines."
+                          : "Available on the mobile app only."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className={pushOptIn ? "ghost" : ""}
+                      onClick={handleTogglePushOptIn}
+                      disabled={!canUsePush || pushBusy}
+                    >
+                      {pushBusy ? "Updating..." : pushOptIn ? "Disable" : "Enable"}
+                    </button>
+                  </div>
+                  <div className="account-card account-preferences account-danger">
+                    <div>
+                      <p className="account-name">Delete account</p>
+                      <p className="account-status">
+                        Removes your teams and deletes leagues you own.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={handleDeleteAccount}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -5106,7 +5178,7 @@ function App() {
               </header>
 
               {transferError && <p className="notice">{transferError}</p>}
-              {authUser && isDrafting && !isPreseason && nextWeek && (
+              {authUser && isLateJoinWindow && nextWeek && (
                 <p className="notice">
                   You missed the start of the season. No worries, you can join for
                   Week {nextWeekIndex + 1}.
@@ -5529,7 +5601,7 @@ function App() {
               );
             })}
 
-            {isEditable && !isPreseason && !isDrafting && (
+            {isEditable && !isDraftingWindow && (
               <div className="transfer-actions">
                 <button
                   type="button"
@@ -5549,7 +5621,7 @@ function App() {
               </div>
             )}
 
-            {isEditable && (isPreseason || isDrafting) && (
+            {isEditable && isDraftingWindow && (
               <div className="preseason-actions">
                   <button
                     type="button"

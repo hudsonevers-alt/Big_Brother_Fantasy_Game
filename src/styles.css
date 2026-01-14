@@ -370,6 +370,36 @@ h2 {
   gap: 0.75rem;
 }
 
+.profile-actions {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.settings-gear {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 14px;
+  border: 1px solid var(--border-1);
+  background: var(--paper-1);
+  color: var(--ink-2);
+  box-shadow: none;
+}
+
+.settings-gear:hover {
+  box-shadow: 0 8px 16px rgba(11, 31, 59, 0.12);
+}
+
+.settings-gear svg {
+  width: 20px;
+  height: 20px;
+}
+
+.settings-list {
+  display: grid;
+  gap: 1rem;
+}
+
 .leaderboard-team-groups {
   display: grid;
   gap: 1.5rem;
