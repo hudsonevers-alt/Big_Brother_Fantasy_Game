@@ -3,7 +3,7 @@ import { PushNotifications } from "@capacitor/push-notifications";
 
 export const initPushNotifications = async () => {
   if (!Capacitor.isNativePlatform()) {
-    return;
+    return false;
   }
 
   let status = await PushNotifications.checkPermissions();
@@ -12,27 +12,27 @@ export const initPushNotifications = async () => {
   }
 
   if (status.receive !== "granted") {
-    return;
+    return false;
   }
 
   await PushNotifications.register();
 
-  PushNotifications.addListener("registration", (token) => {
-    console.info("Push registration success", token.value);
-  });
+  PushNotifications.addListener("registration", () => {});
+  PushNotifications.addListener("registrationError", () => {});
+  PushNotifications.addListener("pushNotificationReceived", () => {});
+  PushNotifications.addListener("pushNotificationActionPerformed", () => {});
 
-  PushNotifications.addListener("registrationError", (error) => {
-    console.error("Push registration error", error);
-  });
+  return true;
+};
 
-  PushNotifications.addListener("pushNotificationReceived", (notification) => {
-    console.info("Push notification received", notification);
-  });
-
-  PushNotifications.addListener(
-    "pushNotificationActionPerformed",
-    (action) => {
-      console.info("Push notification action performed", action);
-    }
-  );
+export const disablePushNotifications = async () => {
+  if (!Capacitor.isNativePlatform()) {
+    return;
+  }
+  if (typeof PushNotifications.removeAllListeners === "function") {
+    await PushNotifications.removeAllListeners();
+  }
+  if (typeof PushNotifications.unregister === "function") {
+    await PushNotifications.unregister();
+  }
 };

@@ -6,13 +6,103 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == "hudsonevers@gmail.com";
+      return isSignedIn() && request.auth.token.admin == true;
     }
 
     function isLeagueMember(leagueId) {
       return isSignedIn()
         && get(/databases/$(database)/documents/leagues/$(leagueId))
           .data.memberIds.hasAny([request.auth.uid]);
+    }
+
+    function seasonNextDeadline() {
+      return get(/databases/$(database)/documents/season/state).data.nextDeadline;
+    }
+
+    function isBeforeDeadline() {
+      return isAdmin()
+        || (seasonNextDeadline() != null
+          && request.time < seasonNextDeadline());
+    }
+
+    function userChangeKeys() {
+      return request.resource.data.diff(resource.data).changedKeys();
+    }
+
+    function isValidTransferBank() {
+      return !userChangeKeys().hasAny(["transferBank"])
+        || (request.resource.data.transferBank is int
+          && request.resource.data.transferBank >= 0
+          && request.resource.data.transferBank <= 2);
+    }
+
+    function isTeamChange() {
+      return userChangeKeys().hasAny([
+        "teams",
+        "transferBank",
+        "preseasonLocked",
+        "hasCommittedTeam",
+        "lastSeenWeekIndex",
+        "hohBackupPlayerId",
+        "blockBackupPlayerId",
+        "backupHistory"
+      ]);
+    }
+
+    function canUpdateUserDoc() {
+      return userChangeKeys().hasOnly([
+        "displayName",
+        "displayNameLower",
+        "email",
+        "photoURL",
+        "avatarUrl",
+        "profileComplete",
+        "teams",
+        "transferBank",
+        "preseasonLocked",
+        "hasCommittedTeam",
+        "lastSeenWeekIndex",
+        "hohBackupPlayerId",
+        "blockBackupPlayerId",
+        "backupHistory",
+        "chatReadAt",
+        "pushOptIn",
+        "createdAt",
+        "updatedAt"
+      ])
+      && isValidTransferBank()
+      && (!isTeamChange() || isBeforeDeadline());
+    }
+
+    function publicUserChangeKeys() {
+      return request.resource.data.diff(resource.data).changedKeys();
+    }
+
+    function publicTeamChange() {
+      return publicUserChangeKeys().hasAny([
+        "teams",
+        "hasCommittedTeam",
+        "hohBackupPlayerId",
+        "blockBackupPlayerId",
+        "backupHistory"
+      ]);
+    }
+
+    function canUpdatePublicUser() {
+      return publicUserChangeKeys().hasOnly([
+        "displayName",
+        "displayNameLower",
+        "avatarUrl",
+        "photoURL",
+        "teams",
+        "hasCommittedTeam",
+        "hohBackupPlayerId",
+        "blockBackupPlayerId",
+        "backupHistory",
+        "createdAt",
+        "updatedAt"
+      ])
+      && (!publicTeamChange() || isBeforeDeadline());
     }
 
     match /season/{docId} {
@@ -34,6 +124,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.memberIds.size() == 1
         && request.resource.data.memberIds.hasAll([request.auth.uid]);
       allow delete: if isAdmin()
         || (isSignedIn() && resource.data.ownerId == request.auth.uid);
@@ -42,32 +133,56 @@ service cloud.firestore {
         || (isSignedIn()
           && request.resource.data.diff(resource.data).changedKeys()
             .hasOnly(["memberIds", "updatedAt"])
-          && request.resource.data.memberIds.size()
-            == resource.data.memberIds.size() + 1
-          && request.resource.data.memberIds.hasAll(resource.data.memberIds)
-          && request.resource.data.memberIds.hasAny([request.auth.uid])
-          && !resource.data.memberIds.hasAny([request.auth.uid]));
+          && (
+            (
+              request.resource.data.memberIds.size()
+                == resource.data.memberIds.size() + 1
+              && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+              && request.resource.data.memberIds.hasAny([request.auth.uid])
+              && !resource.data.memberIds.hasAny([request.auth.uid])
+            )
+            || (
+              request.resource.data.memberIds.size()
+                == resource.data.memberIds.size() - 1
+              && resource.data.memberIds.hasAny([request.auth.uid])
+              && !request.resource.data.memberIds.hasAny([request.auth.uid])
+              && resource.data.memberIds.hasAll(request.resource.data.memberIds)
+            )
+          ));
     }
 
     match /leagues/{leagueId}/messages/{messageId} {
       allow read: if isLeagueMember(leagueId);
       allow create: if isLeagueMember(leagueId)
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 500;
       allow update, delete: if isAdmin();
     }
 
     match /globalMessages/{messageId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 500;
       allow update, delete: if isAdmin();
     }
 
     match /users/{userId} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isAdmin()
+        || (isSignedIn() && request.auth.uid == userId && canUpdateUserDoc());
+      allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+    }
+
+    match /publicUsers/{userId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
-      allow delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isSignedIn() && request.auth.uid == userId && canUpdatePublicUser());
+      allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
     }
   }
 }

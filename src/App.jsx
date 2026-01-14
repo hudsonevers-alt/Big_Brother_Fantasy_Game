@@ -4,6 +4,7 @@ import { Capacitor } from "@capacitor/core";
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import {
   GoogleAuthProvider,
+  deleteUser,
   onAuthStateChanged,
   signInWithCredential,
   signInWithPopup,
@@ -21,6 +22,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  Timestamp,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -28,8 +30,9 @@ import {
   writeBatch
 } from "firebase/firestore";
 import { auth, db, googleProvider } from "./firebase";
-import { initPushNotifications } from "./pushNotifications";
+import { disablePushNotifications, initPushNotifications } from "./pushNotifications";
 
+const IS_DEBUG = import.meta.env.DEV;
 const APP_VERSION =
   typeof __APP_VERSION__ === "undefined" ? "0.0.0" : __APP_VERSION__;
 const GIT_SHA = typeof __GIT_SHA__ === "undefined" ? "" : __GIT_SHA__;
@@ -50,6 +53,9 @@ const withTimeout = (promise, ms) => {
 };
 
 const logPluginError = (label, error) => {
+  if (!IS_DEBUG) {
+    return;
+  }
   console.log(`${label} error details`, {
     name: error?.name,
     code: error?.code,
@@ -62,11 +68,22 @@ const logPluginError = (label, error) => {
 
 const MAX_TRANSFERS = 2;
 const STARTING_TRANSFERS = 0;
-const ADMIN_EMAIL = "hudsonevers@gmail.com";
 const PT_TIME_ZONE = "America/Los_Angeles";
 const PROFILE_PROMPT_DELAY_MS = 300;
 const CHAT_MESSAGE_LIMIT = 120;
+const MAX_CHAT_LENGTH = 500;
 const BACKUP_PENALTY = 1;
+const PUBLIC_USER_FIELDS = [
+  "displayName",
+  "displayNameLower",
+  "avatarUrl",
+  "photoURL",
+  "teams",
+  "hasCommittedTeam",
+  "hohBackupPlayerId",
+  "blockBackupPlayerId",
+  "backupHistory"
+];
 
 const rosterSlots = [
   { id: "hoh-1", group: "HOH Room", label: "HOH 1" },
@@ -438,6 +455,37 @@ const countTransfers = (currentTeam, nextTeam) =>
     0
   );
 
+const extractPublicPatch = (patch) => {
+  const publicPatch = {};
+  PUBLIC_USER_FIELDS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      publicPatch[key] = patch[key];
+    }
+  });
+  return publicPatch;
+};
+
+const getDeadlineTimestamp = (deadline) => {
+  if (!deadline) {
+    return null;
+  }
+  const date = new Date(deadline);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return Timestamp.fromDate(date);
+};
+
+const getNextDeadlineTimestamp = (nextWeeks, nextCurrentWeekIndex) => {
+  const resolvedWeeks = Array.isArray(nextWeeks) ? nextWeeks : [];
+  const currentIndex = Number.isFinite(nextCurrentWeekIndex)
+    ? nextCurrentWeekIndex
+    : null;
+  const nextIndex = currentIndex === null ? 0 : currentIndex + 1;
+  const nextWeek = resolvedWeeks[nextIndex];
+  return getDeadlineTimestamp(nextWeek?.deadline);
+};
+
 const areTeamsEqual = (teamA, teamB) =>
   rosterSlots.every(
     (slot) => (teamA?.[slot.id] || "") === (teamB?.[slot.id] || "")
@@ -659,6 +707,7 @@ function App() {
   const [weeks, setWeeks] = useState([]);
   const [weekEvents, setWeekEvents] = useState({});
   const [currentWeekIndex, setCurrentWeekIndex] = useState(null);
+  const [seasonNextDeadline, setSeasonNextDeadline] = useState(null);
   const [displayedWeekIndex, setDisplayedWeekIndex] = useState(0);
   const [userTeams, setUserTeams] = useState({});
   const [draftTeams, setDraftTeams] = useState({});
@@ -718,11 +767,14 @@ function App() {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
+  const [pushBusy, setPushBusy] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const appShellRef = useRef(null);
   const selectMenuAnchorRef = useRef(null);
   const backupMenuAnchorRef = useRef(null);
   const profileInitRef = useRef(false);
+  const publicProfileSyncRef = useRef(false);
   const chatThreadRef = useRef(null);
   const transferErrorTimeoutRef = useRef(null);
   const swipeStartRef = useRef(null);
@@ -798,7 +850,8 @@ function App() {
     });
     return next;
   }, [players]);
-  const isAdmin = authUser?.email === ADMIN_EMAIL;
+  const pushOptIn = Boolean(userProfile?.pushOptIn);
+  const canUsePush = Capacitor.isNativePlatform();
   const tabOrder = useMemo(
     () =>
       (isAdmin ? tabs : tabs.filter((tab) => tab.id !== "admin")).map(
@@ -844,6 +897,28 @@ function App() {
     [activeTab, closeAllModals, tabOrder]
   );
 
+  const updatePublicUserDoc = useCallback(
+    async (patch) => {
+      if (!authUser) {
+        return;
+      }
+      const publicPatch = extractPublicPatch(patch);
+      if (!Object.keys(publicPatch).length) {
+        return;
+      }
+      const publicRef = doc(db, "publicUsers", authUser.uid);
+      await setDoc(
+        publicRef,
+        {
+          ...publicPatch,
+          updatedAt: serverTimestamp()
+        },
+        { merge: true }
+      );
+    },
+    [authUser]
+  );
+
   const updateUserDoc = useCallback(
     async (patch) => {
       if (!authUser) {
@@ -858,8 +933,9 @@ function App() {
         },
         { merge: true }
       );
+      await updatePublicUserDoc(patch);
     },
-    [authUser]
+    [authUser, updatePublicUserDoc]
   );
 
   const updateSeasonDoc = useCallback(
@@ -867,21 +943,37 @@ function App() {
       if (!isAdmin) {
         return;
       }
+      const hasWeeks = Object.prototype.hasOwnProperty.call(patch, "weeks");
+      const hasCurrentWeekIndex = Object.prototype.hasOwnProperty.call(
+        patch,
+        "currentWeekIndex"
+      );
+      const nextDeadline =
+        hasWeeks || hasCurrentWeekIndex
+          ? getNextDeadlineTimestamp(
+              hasWeeks ? patch.weeks : weeks,
+              hasCurrentWeekIndex ? patch.currentWeekIndex : currentWeekIndex
+            )
+          : undefined;
       await setDoc(
         seasonRef,
         {
           ...patch,
+          ...(hasWeeks || hasCurrentWeekIndex ? { nextDeadline } : {}),
           updatedAt: serverTimestamp()
         },
         { merge: true }
       );
     },
-    [isAdmin, seasonRef]
+    [currentWeekIndex, isAdmin, seasonRef, weeks]
   );
 
   useEffect(() => {
+    if (!authUser || !userProfile?.pushOptIn) {
+      return;
+    }
     void initPushNotifications();
-  }, []);
+  }, [authUser, userProfile?.pushOptIn]);
 
   useEffect(() => {
     if (transferErrorTimeoutRef.current) {
@@ -911,32 +1003,23 @@ function App() {
 
     const checkSession = async () => {
       try {
-        console.log("checking session start");
+        if (IS_DEBUG) {
+          console.log("checking session start");
+        }
         if (Capacitor.isNativePlatform()) {
           const result = await FirebaseAuthentication.getCurrentUser();
-          console.log("native current user:", result);
-        } else {
+          if (IS_DEBUG) {
+            console.log("native current user:", result);
+          }
+        } else if (IS_DEBUG) {
           console.log("web mode (skip native current user)");
         }
       } catch (error) {
-        console.error("session check failed:", error);
-        logPluginError("FirebaseAuthentication.getCurrentUser", error);
-        let detail = "Unknown error";
-        if (
-          error &&
-          typeof error === "object" &&
-          "message" in error &&
-          typeof error.message === "string"
-        ) {
-          detail = error.message;
-        } else {
-          try {
-            detail = JSON.stringify(error, null, 2);
-          } catch {
-            detail = String(error);
-          }
+        if (IS_DEBUG) {
+          console.error("session check failed:", error);
+          logPluginError("FirebaseAuthentication.getCurrentUser", error);
         }
-        alert(`SESSION CHECK FAILED:\n\n${detail}`);
+        setAuthError("Unable to check the session. Please try again.");
       } finally {
         if (alive) {
           setAuthLoading(false);
@@ -960,6 +1043,31 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    if (!authUser) {
+      setIsAdmin(false);
+      return () => {
+        active = false;
+      };
+    }
+    authUser
+      .getIdTokenResult()
+      .then((token) => {
+        if (active) {
+          setIsAdmin(Boolean(token?.claims?.admin));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setIsAdmin(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [authUser]);
+
+  useEffect(() => {
     const unsubscribe = onSnapshot(
       seasonRef,
       (snapshot) => {
@@ -968,12 +1076,14 @@ function App() {
           setWeeks([]);
           setWeekEvents({});
           setCurrentWeekIndex(null);
+          setSeasonNextDeadline(null);
           return;
         }
         setSeasonExists(true);
         const data = snapshot.data() || {};
         setWeeks(Array.isArray(data.weeks) ? data.weeks : []);
         setWeekEvents(data.weekEvents || {});
+        setSeasonNextDeadline(data.nextDeadline || null);
         setCurrentWeekIndex(
           Number.isFinite(data.currentWeekIndex) ? data.currentWeekIndex : null
         );
@@ -1016,7 +1126,7 @@ function App() {
       setLeaderboardUsers([]);
       return;
     }
-    const usersRef = collection(db, "users");
+    const usersRef = collection(db, "publicUsers");
     const unsubscribe = onSnapshot(usersRef, (snapshot) => {
       const nextUsers = snapshot.docs.map((docSnap) => ({
         id: docSnap.id,
@@ -1033,7 +1143,11 @@ function App() {
       return;
     }
     const leaguesRef = collection(db, "leagues");
-    const unsubscribe = onSnapshot(leaguesRef, (snapshot) => {
+    const leaguesQuery = query(
+      leaguesRef,
+      where("memberIds", "array-contains", authUser.uid)
+    );
+    const unsubscribe = onSnapshot(leaguesQuery, (snapshot) => {
       const nextLeagues = snapshot.docs.map((docSnap) => ({
         id: docSnap.id,
         ...docSnap.data()
@@ -1125,10 +1239,29 @@ function App() {
           blockBackupPlayerId: "",
           backupHistory: {},
           chatReadAt: { global: 0, leagues: {} },
+          pushOptIn: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+        const publicProfile = {
+          displayName: profile.displayName,
+          displayNameLower: profile.displayNameLower,
+          avatarUrl: profile.avatarUrl,
+          photoURL: profile.photoURL,
+          teams: profile.teams,
+          hasCommittedTeam: profile.hasCommittedTeam,
+          hohBackupPlayerId: profile.hohBackupPlayerId,
+          blockBackupPlayerId: profile.blockBackupPlayerId,
+          backupHistory: profile.backupHistory,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         };
         setDoc(userRef, profile, { merge: true }).catch(() => {
+          setAuthError("Unable to set up your profile. Please try again.");
+        });
+        setDoc(doc(db, "publicUsers", authUser.uid), publicProfile, {
+          merge: true
+        }).catch(() => {
           setAuthError("Unable to set up your profile. Please try again.");
         });
         setUserProfile({ id: authUser.uid, ...profile });
@@ -1185,6 +1318,30 @@ function App() {
       setAuthError("Unable to sync your account details.");
     });
   }, [authUser, updateUserDoc]);
+
+  useEffect(() => {
+    if (!authUser || !userProfile || !userProfileReady) {
+      publicProfileSyncRef.current = false;
+      return;
+    }
+    if (publicProfileSyncRef.current) {
+      return;
+    }
+    publicProfileSyncRef.current = true;
+    updatePublicUserDoc({
+      displayName: userProfile.displayName || "",
+      displayNameLower: userProfile.displayNameLower || "",
+      avatarUrl: userProfile.avatarUrl || "",
+      photoURL: userProfile.photoURL || "",
+      teams: userProfile.teams || {},
+      hasCommittedTeam: Boolean(userProfile.hasCommittedTeam),
+      hohBackupPlayerId: userProfile.hohBackupPlayerId || "",
+      blockBackupPlayerId: userProfile.blockBackupPlayerId || "",
+      backupHistory: userProfile.backupHistory || {}
+    }).catch(() => {
+      setAuthError("Unable to sync your public profile.");
+    });
+  }, [authUser, updatePublicUserDoc, userProfile, userProfileReady]);
 
   useEffect(() => {
     if (!authUser || !userProfile?.displayName) {
@@ -2218,10 +2375,12 @@ function App() {
     setDisplayedWeekIndex(nextWeekIndex);
     try {
       const batch = writeBatch(db);
+      const nextDeadline = getNextDeadlineTimestamp(weeks, nextWeekIndex);
       batch.set(
         seasonRef,
         {
           currentWeekIndex: nextWeekIndex,
+          nextDeadline,
           updatedAt: serverTimestamp()
         },
         { merge: true }
@@ -2261,6 +2420,17 @@ function App() {
               },
               { merge: true }
             );
+            const publicPatch = extractPublicPatch(patch);
+            if (Object.keys(publicPatch).length) {
+              batch.set(
+                doc(db, "publicUsers", docSnap.id),
+                {
+                  ...publicPatch,
+                  updatedAt: serverTimestamp()
+                },
+                { merge: true }
+              );
+            }
           }
         });
       }
@@ -2268,7 +2438,7 @@ function App() {
     } catch (error) {
       setAuthError("Unable to advance the week. Please try again.");
     }
-  }, [currentWeekIndex, isAdmin, nextWeek, nextWeekIndex, seasonRef]);
+  }, [currentWeekIndex, isAdmin, nextWeek, nextWeekIndex, seasonRef, weeks]);
 
   useEffect(() => {
     if (!nextWeek || !isAdmin) {
@@ -2282,6 +2452,32 @@ function App() {
       advanceWeek();
     }
   }, [advanceWeek, currentWeekIndex, isAdmin, nextWeek, nextWeekIndex, now]);
+
+  useEffect(() => {
+    if (!isAdmin || !seasonExists) {
+      return;
+    }
+    if (!Array.isArray(weeks) || weeks.length === 0) {
+      return;
+    }
+    if (seasonNextDeadline) {
+      return;
+    }
+    const nextDeadline = getNextDeadlineTimestamp(weeks, currentWeekIndex);
+    if (!nextDeadline) {
+      return;
+    }
+    updateSeasonDoc({ nextDeadline }).catch(() => {
+      setAuthError("Unable to sync the season deadline.");
+    });
+  }, [
+    currentWeekIndex,
+    isAdmin,
+    seasonExists,
+    seasonNextDeadline,
+    updateSeasonDoc,
+    weeks
+  ]);
 
   const handleTeamChange = (slotId, playerId) => {
     if (!isEditable || !nextWeek || !authUser) {
@@ -2509,7 +2705,7 @@ function App() {
     }
     const normalized = buildDisplayNameLower(trimmed);
     try {
-      const usersRef = collection(db, "users");
+      const usersRef = collection(db, "publicUsers");
       const nameQuery = query(
         usersRef,
         where("displayNameLower", "==", normalized),
@@ -2557,12 +2753,16 @@ function App() {
     const isNative = Capacitor.isNativePlatform();
     try {
       if (isNative) {
-        console.log("starting native google sign-in");
+        if (IS_DEBUG) {
+          console.log("starting native google sign-in");
+        }
         const result = await FirebaseAuthentication.signInWithGoogle();
-        console.log("native result summary:", {
-          hasCredential: Boolean(result?.credential),
-          providerId: result?.credential?.providerId ?? "unknown"
-        });
+        if (IS_DEBUG) {
+          console.log("native result summary:", {
+            hasCredential: Boolean(result?.credential),
+            providerId: result?.credential?.providerId ?? "unknown"
+          });
+        }
         const idToken =
           result?.credential?.idToken ??
           result?.credential?.id_token ??
@@ -2575,54 +2775,47 @@ function App() {
           result?.authentication?.accessToken ??
           result?.accessToken ??
           null;
-        console.log("extracted tokens:", {
-          hasIdToken: Boolean(idToken),
-          hasAccessToken: Boolean(accessToken)
-        });
-        console.log("token lengths:", {
-          idTokenLength: idToken?.length ?? 0,
-          accessTokenLength: accessToken?.length ?? 0
-        });
+        if (IS_DEBUG) {
+          console.log("extracted tokens:", {
+            hasIdToken: Boolean(idToken),
+            hasAccessToken: Boolean(accessToken)
+          });
+          console.log("token lengths:", {
+            idTokenLength: idToken?.length ?? 0,
+            accessTokenLength: accessToken?.length ?? 0
+          });
+        }
         if (!accessToken && !idToken) {
-          alert("No tokens returned from native Google sign-in");
+          if (IS_DEBUG) {
+            alert("No tokens returned from native Google sign-in");
+          }
           throw new Error("No tokens returned from native sign-in.");
         }
-        console.log("web config:", {
-          apiKey: auth?.app?.options?.apiKey ? "OK" : "MISSING",
-          authDomain: auth?.app?.options?.authDomain ?? "MISSING",
-          projectId: auth?.app?.options?.projectId ?? "MISSING",
-          appId: auth?.app?.options?.appId ? "OK" : "MISSING"
-        });
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
         try {
-          console.log("calling signInWithCredential");
           const authResult = await withTimeout(
             signInWithCredential(auth, credential),
             15000
           );
-          console.log(
-            "web firebase signed in:",
-            authResult?.user?.uid,
-            authResult?.user?.email
-          );
-          alert(`Signed in OK: ${authResult?.user?.email ?? ""}`);
           if (authResult?.user) {
             setAuthUser(authResult.user);
           }
         } catch (error) {
           innerAlerted = true;
-          console.error("signInWithCredential failed:", error);
-          console.log("signInWithCredential error raw:", error);
-          console.log("name:", error?.name);
-          console.log("code:", error?.code);
-          console.log("message:", error?.message);
-          console.log("customData:", error?.customData);
-          console.log("stack:", error?.stack);
-          alert(
-            `signInWithCredential failed: ${
-              error?.code || error?.message || String(error)
-            }`
-          );
+          if (IS_DEBUG) {
+            console.error("signInWithCredential failed:", error);
+            console.log("signInWithCredential error raw:", error);
+            console.log("name:", error?.name);
+            console.log("code:", error?.code);
+            console.log("message:", error?.message);
+            console.log("customData:", error?.customData);
+            console.log("stack:", error?.stack);
+            alert(
+              `signInWithCredential failed: ${
+                error?.code || error?.message || String(error)
+              }`
+            );
+          }
           throw error;
         }
         return;
@@ -2632,10 +2825,12 @@ function App() {
         setAuthUser(authResult.user);
       }
     } catch (error) {
-      console.error("Google sign-in failed:", error);
+      if (IS_DEBUG) {
+        console.error("Google sign-in failed:", error);
+      }
       const detail = getErrorDetail(error);
       setAuthError(`Google sign-in failed: ${detail}`);
-      if (!innerAlerted) {
+      if (IS_DEBUG && !innerAlerted) {
         alert(`Google sign-in failed:\n\n${detail}`);
       }
     }
@@ -2650,6 +2845,68 @@ function App() {
       await signOut(auth);
     } catch (error) {
       setAuthError("Sign out failed. Please try again.");
+    }
+  };
+
+  const handleTogglePushOptIn = async () => {
+    if (!authUser || pushBusy) {
+      return;
+    }
+    setAuthError("");
+    setPushBusy(true);
+    try {
+      if (!canUsePush) {
+        setAuthError("Push notifications are available on the mobile app.");
+        return;
+      }
+      if (pushOptIn) {
+        await updateUserDoc({ pushOptIn: false });
+        await disablePushNotifications();
+        return;
+      }
+      const granted = await initPushNotifications();
+      if (!granted) {
+        setAuthError("Enable notifications in system settings to opt in.");
+        return;
+      }
+      await updateUserDoc({ pushOptIn: true });
+    } catch (error) {
+      setAuthError("Unable to update notification settings.");
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!authUser) {
+      return;
+    }
+    const confirmed = window.confirm(
+      "Delete your account? This removes your teams and will delete any leagues you own."
+    );
+    if (!confirmed) {
+      return;
+    }
+    setAuthError("");
+    try {
+      const batch = writeBatch(db);
+      memberLeagues.forEach((league) => {
+        const leagueRef = doc(db, "leagues", league.id);
+        if (league.ownerId === authUser.uid) {
+          batch.delete(leagueRef);
+          return;
+        }
+        batch.update(leagueRef, {
+          memberIds: arrayRemove(authUser.uid),
+          updatedAt: serverTimestamp()
+        });
+      });
+      batch.delete(doc(db, "users", authUser.uid));
+      batch.delete(doc(db, "publicUsers", authUser.uid));
+      await batch.commit();
+      await deleteUser(authUser);
+    } catch (error) {
+      setAuthError("Unable to delete your account. Please try again.");
     }
   };
 
@@ -2670,6 +2927,10 @@ function App() {
     }
     const trimmed = chatInput.trim();
     if (!trimmed) {
+      return;
+    }
+    if (trimmed.length > MAX_CHAT_LENGTH) {
+      setChatError(`Messages can be up to ${MAX_CHAT_LENGTH} characters.`);
       return;
     }
     let messagesRef = null;
@@ -2910,10 +3171,12 @@ function App() {
       return;
     }
     try {
+      const seededWeeks = buildDefaultWeeks();
       await setDoc(seasonRef, {
-        weeks: buildDefaultWeeks(),
+        weeks: seededWeeks,
         weekEvents: {},
         currentWeekIndex: null,
+        nextDeadline: getNextDeadlineTimestamp(seededWeeks, null),
         updatedAt: serverTimestamp()
       });
     } catch (error) {
@@ -2943,6 +3206,7 @@ function App() {
         {
           currentWeekIndex: null,
           weekEvents: {},
+          nextDeadline: getNextDeadlineTimestamp(weeks, null),
           updatedAt: serverTimestamp()
         },
         { merge: true }
@@ -2960,6 +3224,18 @@ function App() {
             preseasonLocked: false,
             hasCommittedTeam: false,
             lastSeenWeekIndex: -1,
+            hohBackupPlayerId: "",
+            blockBackupPlayerId: "",
+            backupHistory: {},
+            updatedAt: serverTimestamp()
+          },
+          { merge: true }
+        );
+        batch.set(
+          doc(db, "publicUsers", user.id),
+          {
+            teams: {},
+            hasCommittedTeam: false,
             hohBackupPlayerId: "",
             blockBackupPlayerId: "",
             backupHistory: {},
@@ -3864,7 +4140,7 @@ function App() {
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
                 disabled={isChatDisabled}
-                maxLength={280}
+                maxLength={MAX_CHAT_LENGTH}
               />
               <button type="submit" disabled={isChatDisabled || chatSending}>
                 Send
@@ -4166,9 +4442,9 @@ function App() {
     >
       <main className="app">
         <div className="account-stack">
-          <div className="account-bar">
-            <div className="account-card">
-              <div className="account-info">
+        <div className="account-bar">
+          <div className="account-card">
+            <div className="account-info">
                 <button
                   type="button"
                   className="avatar-button"
@@ -4210,14 +4486,47 @@ function App() {
                     Sign in with Google
                   </button>
                 )}
-              </div>
             </div>
           </div>
-          {!authUser && activeTab === "team" && (
-            <p className="notice account-notice">
-              Sign in to save your team and appear on the leaderboard.
-            </p>
-          )}
+        </div>
+        {authUser && (
+          <div className="account-card account-preferences">
+            <div>
+              <p className="account-name">Notifications</p>
+              <p className="account-status">
+                {canUsePush
+                  ? "Get reminders before weekly deadlines."
+                  : "Available on the mobile app only."}
+              </p>
+            </div>
+            <button
+              type="button"
+              className={pushOptIn ? "ghost" : ""}
+              onClick={handleTogglePushOptIn}
+              disabled={!canUsePush || pushBusy}
+            >
+              {pushBusy ? "Updating..." : pushOptIn ? "Disable" : "Enable"}
+            </button>
+          </div>
+        )}
+        {authUser && (
+          <div className="account-card account-preferences account-danger">
+            <div>
+              <p className="account-name">Delete account</p>
+              <p className="account-status">
+                Removes your teams and deletes leagues you own.
+              </p>
+            </div>
+            <button type="button" className="danger" onClick={handleDeleteAccount}>
+              Delete
+            </button>
+          </div>
+        )}
+        {!authUser && activeTab === "team" && (
+          <p className="notice account-notice">
+            Sign in to save your team and appear on the leaderboard.
+          </p>
+        )}
           {authError && <p className="notice">{authError}</p>}
         </div>
         {showProfileModal && (

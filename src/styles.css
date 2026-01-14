@@ -810,6 +810,15 @@ h2 {
   flex-wrap: wrap;
 }
 
+.account-preferences {
+  justify-content: space-between;
+}
+
+.account-danger {
+  border-color: rgba(214, 67, 67, 0.35);
+  background: linear-gradient(135deg, #fff7f7, #ffffff);
+}
+
 .account-info {
   display: flex;
   align-items: center;
