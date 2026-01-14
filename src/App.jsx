@@ -949,9 +949,30 @@ function App() {
     [authUser, updatePublicUserDoc]
   );
 
+  const requireAdminSession = useCallback(async () => {
+    if (!authUser) {
+      setIsAdmin(false);
+      return false;
+    }
+    try {
+      const token = await authUser.getIdTokenResult(true);
+      const hasAdmin = Boolean(token?.claims?.admin);
+      setIsAdmin(hasAdmin);
+      if (!hasAdmin) {
+        setAuthError("Admin access missing. Sign out and back in.");
+      }
+      return hasAdmin;
+    } catch (error) {
+      setIsAdmin(false);
+      setAuthError("Unable to verify admin access. Please try again.");
+      return false;
+    }
+  }, [authUser]);
+
   const updateSeasonDoc = useCallback(
     async (patch) => {
-      if (!isAdmin) {
+      const hasAdmin = await requireAdminSession();
+      if (!hasAdmin) {
         return;
       }
       const hasWeeks = Object.prototype.hasOwnProperty.call(patch, "weeks");
@@ -976,7 +997,7 @@ function App() {
         { merge: true }
       );
     },
-    [currentWeekIndex, isAdmin, seasonRef, weeks]
+    [currentWeekIndex, requireAdminSession, seasonRef, weeks]
   );
 
   useEffect(() => {
@@ -2398,7 +2419,11 @@ function App() {
   }, [leaderboardViewUserId, leaderboardViewWeekIndex]);
 
   const advanceWeek = useCallback(async () => {
-    if (!nextWeek || !isAdmin) {
+    if (!nextWeek) {
+      return;
+    }
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     setTransferError("");
@@ -2468,7 +2493,14 @@ function App() {
     } catch (error) {
       setAuthError("Unable to advance the week. Please try again.");
     }
-  }, [currentWeekIndex, isAdmin, nextWeek, nextWeekIndex, seasonRef, weeks]);
+  }, [
+    currentWeekIndex,
+    nextWeek,
+    nextWeekIndex,
+    requireAdminSession,
+    seasonRef,
+    weeks
+  ]);
 
   useEffect(() => {
     if (!nextWeek || !isAdmin) {
@@ -3181,7 +3213,11 @@ function App() {
   };
 
   const handleSeedPlayers = async () => {
-    if (!isAdmin || defaultPlayers.length === 0) {
+    if (defaultPlayers.length === 0) {
+      return;
+    }
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     try {
@@ -3197,7 +3233,8 @@ function App() {
   };
 
   const handleSeedSeason = async () => {
-    if (!isAdmin) {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     try {
@@ -3215,7 +3252,8 @@ function App() {
   };
 
   const handleResetSeason = async () => {
-    if (!isAdmin) {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     const confirmed = window.confirm(
@@ -3321,8 +3359,9 @@ function App() {
     }
   };
 
-  const handleRandomizeEvents = () => {
-    if (!isAdmin) {
+  const handleRandomizeEvents = async () => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     if (weeks.length === 0 || players.length === 0) {
@@ -3434,8 +3473,9 @@ function App() {
     });
   };
 
-  const toggleDoubleEviction = (weekIndex) => {
-    if (!isAdmin) {
+  const toggleDoubleEviction = async (weekIndex) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     setWeekEvents((prev) => {
@@ -3451,8 +3491,15 @@ function App() {
     });
   };
 
-  const handleEventChange = (weekIndex, playerId, roundIndex, field, value) => {
-    if (!isAdmin) {
+  const handleEventChange = async (
+    weekIndex,
+    playerId,
+    roundIndex,
+    field,
+    value
+  ) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     setWeekEvents((prev) => {
@@ -3476,8 +3523,9 @@ function App() {
     });
   };
 
-  const handleToggleEvict = (playerId) => {
-    if (!isAdmin) {
+  const handleToggleEvict = async (playerId) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     const player = playersById.get(playerId);
@@ -3499,8 +3547,9 @@ function App() {
     });
   };
 
-  const handleEvictionWeekChange = (playerId, value) => {
-    if (!isAdmin) {
+  const handleEvictionWeekChange = async (playerId, value) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     if (value === "") {
@@ -3553,9 +3602,10 @@ function App() {
     reader.readAsDataURL(file);
   };
 
-  const handleAddPlayer = (event) => {
+  const handleAddPlayer = async (event) => {
     event.preventDefault();
-    if (!isAdmin) {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     const trimmed = newPlayerName.trim();
@@ -3580,9 +3630,13 @@ function App() {
     event.currentTarget.reset();
   };
 
-  const handleAddAvatar = (event) => {
+  const handleAddAvatar = async (event) => {
     event.preventDefault();
-    if (!isAdmin || !newAvatarPhoto) {
+    if (!newAvatarPhoto) {
+      return;
+    }
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     const avatar = {
@@ -3599,8 +3653,9 @@ function App() {
     event.currentTarget.reset();
   };
 
-  const handleRemoveAvatar = (avatarId) => {
-    if (!isAdmin) {
+  const handleRemoveAvatar = async (avatarId) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     deleteDoc(doc(db, "avatars", avatarId)).catch(() => {
@@ -3608,8 +3663,9 @@ function App() {
     });
   };
 
-  const handleRemovePlayer = (playerId) => {
-    if (!isAdmin) {
+  const handleRemovePlayer = async (playerId) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     deleteDoc(doc(db, "players", playerId)).catch(() => {
@@ -3633,8 +3689,9 @@ function App() {
     });
   };
 
-  const handleWeekDeadlineChange = (index, value) => {
-    if (!isAdmin) {
+  const handleWeekDeadlineChange = async (index, value) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     if (!value) {
@@ -3653,8 +3710,9 @@ function App() {
     });
   };
 
-  const handleAddWeek = () => {
-    if (!isAdmin) {
+  const handleAddWeek = async () => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     const nextIndex = weeks.length;
@@ -3677,8 +3735,9 @@ function App() {
     });
   };
 
-  const handleRemoveWeek = (index) => {
-    if (!isAdmin) {
+  const handleRemoveWeek = async (index) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
       return;
     }
     if (index !== weeks.length - 1) {
