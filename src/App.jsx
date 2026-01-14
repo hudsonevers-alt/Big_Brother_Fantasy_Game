@@ -1648,8 +1648,11 @@ function App() {
       setSelectedChatLeagueId(null);
       return;
     }
-    if (!memberLeagues.some((league) => league.id === selectedChatLeagueId)) {
-      setSelectedChatLeagueId(memberLeagues[0].id);
+    if (
+      selectedChatLeagueId &&
+      !memberLeagues.some((league) => league.id === selectedChatLeagueId)
+    ) {
+      setSelectedChatLeagueId(null);
     }
   }, [chatScope, memberLeagues, selectedChatLeagueId]);
 
