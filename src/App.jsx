@@ -2739,11 +2739,10 @@ function App() {
     typeof document === "undefined" ? null : document.body;
   const showInlineActions = isEditable && hasPendingChanges;
   const saveActionLabel = isDraftingWindow ? "Save team" : "Save transfers";
-  const showFloatingSave =
-    activeTab === "team" &&
-    showInlineActions &&
-    !isModalOpen &&
-    !inlineActionsVisible;
+  const shouldRenderFloatingSave =
+    activeTab === "team" && showInlineActions && !isModalOpen;
+  const floatingSaveVisible =
+    shouldRenderFloatingSave && !inlineActionsVisible;
   const handleSaveAction = () => {
     if (!canSaveTransfers) {
       return;
@@ -4646,9 +4645,9 @@ function App() {
     }
     const rowRect = row.getBoundingClientRect();
     const tabRect = tabBar.getBoundingClientRect();
-    const threshold = tabRect.top - tabRect.height * 0.1;
+    const threshold = tabRect.top - tabRect.height * 0.3;
     const isVisible = rowRect.bottom > 0 && rowRect.top < window.innerHeight;
-    const isAboveTabs = rowRect.bottom <= threshold;
+    const isAboveTabs = rowRect.top <= threshold;
     setInlineActionsVisible(isVisible && isAboveTabs);
   }, []);
 
@@ -7242,12 +7241,16 @@ function App() {
         </div>
       </main>
 
-      {showFloatingSave && (
+      {shouldRenderFloatingSave && (
         <button
           type="button"
-          className="floating-save"
+          className={`floating-save ${
+            floatingSaveVisible ? "is-visible" : "is-hidden"
+          }`}
           onClick={handleSaveAction}
           disabled={!canSaveTransfers}
+          aria-hidden={!floatingSaveVisible}
+          tabIndex={floatingSaveVisible ? 0 : -1}
         >
           {saveActionLabel}
         </button>

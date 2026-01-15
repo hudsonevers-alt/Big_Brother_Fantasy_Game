@@ -2705,6 +2705,7 @@ input[type="file"] {
   padding: 0.7rem 1.4rem;
   border-radius: 999px;
   box-shadow: 0 14px 26px rgba(67, 186, 229, 0.35);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .floating-save:disabled {
@@ -2712,6 +2713,12 @@ input[type="file"] {
   cursor: not-allowed;
   box-shadow: none;
   background: rgba(67, 186, 229, 0.55);
+}
+
+.floating-save.is-hidden {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
 }
 
 .save-toast {
