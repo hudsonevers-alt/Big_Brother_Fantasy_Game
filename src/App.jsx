@@ -918,6 +918,7 @@ function App() {
   const [backupSelectOpen, setBackupSelectOpen] = useState(null);
   const [selectMenuPosition, setSelectMenuPosition] = useState(null);
   const [backupMenuPosition, setBackupMenuPosition] = useState(null);
+  const [menuScrollPadding, setMenuScrollPadding] = useState(0);
   const [draftBackupPrefs, setDraftBackupPrefs] = useState({
     hohBackupPlayerId: "",
     blockBackupPlayerId: ""
@@ -2724,6 +2725,22 @@ function App() {
     leaderboardFilterOpen;
   const portalRoot =
     typeof document === "undefined" ? null : document.body;
+  const showFloatingSave =
+    activeTab === "team" &&
+    isEditable &&
+    hasPendingChanges &&
+    !isModalOpen;
+  const floatingSaveLabel = isDraftingWindow ? "Save team" : "Save transfers";
+  const handleFloatingSave = () => {
+    if (!canSaveTransfers) {
+      return;
+    }
+    if (isDraftingWindow) {
+      handlePreseasonSave();
+      return;
+    }
+    handleOpenTransferConfirm();
+  };
 
   const handleTouchStart = useCallback(
     (event) => {
@@ -4554,6 +4571,42 @@ function App() {
     };
   }, [backupSelectOpen, openSelectSlotId, updateOpenMenuPositions]);
 
+  useEffect(() => {
+    if (!openSelectSlotId && !backupSelectOpen) {
+      setMenuScrollPadding(0);
+      return;
+    }
+    if (activeTab !== "team") {
+      setMenuScrollPadding(0);
+      return;
+    }
+    const adjustMenuSpacing = () => {
+      const menu = document.querySelector(".player-select-menu--overlay");
+      const scrollNode = appShellRef.current;
+      if (!menu || !scrollNode) {
+        return;
+      }
+      const menuRect = menu.getBoundingClientRect();
+      const tabBar = document.querySelector(".tab-bar");
+      const tabBarRect = tabBar?.getBoundingClientRect();
+      const margin = 12;
+      const availableBottom = tabBarRect
+        ? tabBarRect.top - margin
+        : window.innerHeight - margin;
+      const overflow = Math.max(0, menuRect.bottom - availableBottom);
+      const extraPadding = overflow > 0 ? overflow + margin : 0;
+      setMenuScrollPadding(extraPadding);
+      if (overflow > 0) {
+        requestAnimationFrame(() => {
+          scrollNode.scrollBy({ top: overflow + margin, behavior: "smooth" });
+          requestAnimationFrame(updateOpenMenuPositions);
+        });
+      }
+    };
+    const rafId = requestAnimationFrame(adjustMenuSpacing);
+    return () => cancelAnimationFrame(rafId);
+  }, [activeTab, backupSelectOpen, openSelectSlotId, updateOpenMenuPositions]);
+
   const getSelectedIdsForSlot = useCallback(
     (slotId) => {
       if (!isEditable) {
@@ -5265,6 +5318,7 @@ function App() {
       ref={appShellRef}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
+      style={{ "--dropdown-scroll-padding": `${menuScrollPadding}px` }}
     >
       <main className="app">
         <div className="account-stack">
@@ -6518,6 +6572,42 @@ function App() {
               </div>
             </header>
 
+            <div className="admin-top-actions">
+              <div className="week-actions">
+                <button type="button" onClick={handleAddWeek}>
+                  Add week
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={handleRandomizeEvents}
+                  disabled={weeks.length === 0 || players.length === 0}
+                >
+                  Randomize events
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={handleResetSeason}
+                  disabled={weeks.length === 0}
+                >
+                  Reset to preseason
+                </button>
+                <button
+                  type="button"
+                  className="accent"
+                  onClick={advanceWeek}
+                  disabled={!nextWeek}
+                >
+                  Go to next week
+                </button>
+              </div>
+              <p className="helper">
+                Advancing locks the current week and opens the next week for
+                transfers.
+              </p>
+            </div>
+
             <div className="admin-grid">
               <div className="admin-card">
                 <div className="card-title">
@@ -7100,45 +7190,23 @@ function App() {
                     );
                   })}
                 </div>
-                <div className="week-actions">
-                  <button type="button" onClick={handleAddWeek}>
-                    Add week
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={handleRandomizeEvents}
-                    disabled={weeks.length === 0 || players.length === 0}
-                  >
-                    Randomize events
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={handleResetSeason}
-                    disabled={weeks.length === 0}
-                  >
-                    Reset to preseason
-                  </button>
-                  <button
-                    type="button"
-                    className="accent"
-                    onClick={advanceWeek}
-                    disabled={!nextWeek}
-                  >
-                    Go to next week
-                  </button>
-                  <p className="helper">
-                    Advancing locks the current week and opens the next week for
-                    transfers.
-                  </p>
-                </div>
               </div>
             </div>
           </section>
         )}
         </div>
       </main>
+
+      {showFloatingSave && (
+        <button
+          type="button"
+          className="floating-save"
+          onClick={handleFloatingSave}
+          disabled={!canSaveTransfers}
+        >
+          {floatingSaveLabel}
+        </button>
+      )}
 
       <nav
         className="tab-bar"
