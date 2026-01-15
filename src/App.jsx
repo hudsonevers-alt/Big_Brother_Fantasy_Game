@@ -921,6 +921,7 @@ function App() {
   const [menuScrollPadding, setMenuScrollPadding] = useState(0);
   const [inlineActionsVisible, setInlineActionsVisible] = useState(false);
   const [saveToastVisible, setSaveToastVisible] = useState(false);
+  const [transferToastVisible, setTransferToastVisible] = useState(false);
   const [draftBackupPrefs, setDraftBackupPrefs] = useState({
     hohBackupPlayerId: "",
     blockBackupPlayerId: ""
@@ -972,6 +973,7 @@ function App() {
   const publicProfileSyncRef = useRef(false);
   const chatThreadRef = useRef(null);
   const saveToastTimeoutRef = useRef(null);
+  const transferToastTimeoutRef = useRef(null);
   const transferErrorTimeoutRef = useRef(null);
   const swipeStartRef = useRef(null);
   const leaderboardFilterRef = useRef(null);
@@ -2047,7 +2049,7 @@ function App() {
   const hohBackupPlayerId = userProfile?.hohBackupPlayerId || "";
   const blockBackupPlayerId = userProfile?.blockBackupPlayerId || "";
   const backupHistory = userProfile?.backupHistory || {};
-  const transferBaseTeam = hasActiveTeam ? activeTeam : savedNextTeam;
+  const transferBaseTeam = savedNextTeam;
   const transfersUsed = isUnlimitedTransfers
     ? 0
     : countTransfersForSlots(
@@ -2365,6 +2367,9 @@ function App() {
     return () => {
       if (saveToastTimeoutRef.current) {
         clearTimeout(saveToastTimeoutRef.current);
+      }
+      if (transferToastTimeoutRef.current) {
+        clearTimeout(transferToastTimeoutRef.current);
       }
     };
   }, []);
@@ -2740,7 +2745,10 @@ function App() {
   const showInlineActions = isEditable && hasPendingChanges;
   const saveActionLabel = isDraftingWindow ? "Save team" : "Save transfers";
   const shouldRenderFloatingSave =
-    activeTab === "team" && showInlineActions && !isModalOpen;
+    activeTab === "team" &&
+    showInlineActions &&
+    !isModalOpen &&
+    canSaveTransfers;
   const floatingSaveVisible =
     shouldRenderFloatingSave && !inlineActionsVisible;
   const handleSaveAction = () => {
@@ -2749,6 +2757,10 @@ function App() {
     }
     if (isDraftingWindow) {
       handlePreseasonSave();
+      return;
+    }
+    if (hasBackupDraftChanges && !hasDraftChanges) {
+      handleConfirmTransfers();
       return;
     }
     handleOpenTransferConfirm();
@@ -3029,7 +3041,8 @@ function App() {
           rosterSlotsForNextWeek
         );
         if (used > transferBank) {
-          setTransferError("No transfers left. Undo a move to make another change.");
+          setTransferError("");
+          triggerTransferToast();
           return prev;
         }
       }
@@ -3126,7 +3139,18 @@ function App() {
     saveToastTimeoutRef.current = setTimeout(() => {
       setSaveToastVisible(false);
       saveToastTimeoutRef.current = null;
-    }, 400);
+    }, 1500);
+  }, []);
+
+  const triggerTransferToast = useCallback(() => {
+    if (transferToastTimeoutRef.current) {
+      clearTimeout(transferToastTimeoutRef.current);
+    }
+    setTransferToastVisible(true);
+    transferToastTimeoutRef.current = setTimeout(() => {
+      setTransferToastVisible(false);
+      transferToastTimeoutRef.current = null;
+    }, 1500);
   }, []);
 
   const handleOpenTransferConfirm = () => {
@@ -7259,6 +7283,15 @@ function App() {
       {saveToastVisible && (
         <div className="save-toast" role="status" aria-live="polite">
           Changes saved
+        </div>
+      )}
+      {transferToastVisible && (
+        <div
+          className="save-toast save-toast--error"
+          role="alert"
+          aria-live="assertive"
+        >
+          Not enough transfers
         </div>
       )}
 

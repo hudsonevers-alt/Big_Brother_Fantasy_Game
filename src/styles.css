@@ -2736,7 +2736,14 @@ input[type="file"] {
   box-shadow: 0 12px 28px rgba(11, 31, 59, 0.25);
   z-index: 42;
   pointer-events: none;
-  animation: toast-fade 0.4s ease;
+  animation: toast-fade 1.5s ease;
+}
+
+.save-toast--error {
+  background: #fff;
+  color: #c0392b;
+  border: 1px solid rgba(192, 57, 43, 0.35);
+  box-shadow: 0 12px 28px rgba(192, 57, 43, 0.2);
 }
 
 @keyframes toast-fade {
@@ -2744,7 +2751,11 @@ input[type="file"] {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.98);
   }
-  35% {
+  12% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  85% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1);
   }
