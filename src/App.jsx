@@ -3192,15 +3192,32 @@ function App() {
       ...nextBackupHistory,
       [nextWeekIndex]: nextBackupPrefs
     };
+    const nextTransferBank = isUnlimitedTransfers
+      ? transferBank
+      : Math.max(0, transferBank - transfersUsed);
+    const transferPatch = isUnlimitedTransfers
+      ? {}
+      : { transferBank: nextTransferBank };
     try {
       await updateUserDoc({
         teams: nextTeams,
         backupHistory: nextBackupHistory,
-        ...nextBackupPrefs
+        ...nextBackupPrefs,
+        ...transferPatch
       });
       setUserTeams(nextTeams);
+      if (!isUnlimitedTransfers) {
+        setTransferBank(nextTransferBank);
+      }
       setUserProfile((prev) =>
-        prev ? { ...prev, ...nextBackupPrefs, backupHistory: nextBackupHistory } : prev
+        prev
+          ? {
+              ...prev,
+              ...nextBackupPrefs,
+              backupHistory: nextBackupHistory,
+              ...transferPatch
+            }
+          : prev
       );
       setDraftBackupPrefs(nextBackupPrefs);
       setDraftTeams((prev) => {
