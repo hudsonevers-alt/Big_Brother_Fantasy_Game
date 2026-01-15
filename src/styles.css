@@ -1181,17 +1181,18 @@ h2 {
 }
 
 .chat-card {
-  background: var(--paper-2);
+  background: linear-gradient(160deg, var(--paper-2), #f4f9ff);
   border-radius: 24px;
   padding: 1.5rem;
   border: 1px solid var(--border-1);
-  box-shadow: var(--shadow);
+  box-shadow: 0 18px 36px rgba(11, 31, 59, 0.12);
   display: grid;
-  gap: 1rem;
+  gap: 1.1rem;
 }
 
 .chat-tabs {
   justify-content: flex-start;
+  gap: 0.4rem;
 }
 
 .chat-league-list {
@@ -1210,11 +1211,13 @@ h2 {
   border-radius: 16px;
   padding: 0.75rem 0.9rem;
   color: var(--ink-1);
-  box-shadow: 0 10px 18px rgba(11, 31, 59, 0.1);
+  box-shadow: 0 10px 18px rgba(11, 31, 59, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .chat-league-button:hover {
-  box-shadow: 0 14px 22px rgba(11, 31, 59, 0.14);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 24px rgba(11, 31, 59, 0.14);
 }
 
 .chat-league-name {
@@ -1235,6 +1238,7 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  padding-bottom: 0.3rem;
 }
 
 .chat-header--league {
@@ -1252,33 +1256,42 @@ h2 {
 }
 
 .chat-thread {
-  background: var(--paper-1);
-  border: 1px solid var(--border-1);
-  border-radius: 18px;
-  padding: 1rem;
+  background: linear-gradient(180deg, #ffffff, #f0f6fb);
+  border: 1px solid rgba(11, 31, 59, 0.08);
+  border-radius: 20px;
+  padding: 1.1rem;
   display: grid;
-  gap: 0.9rem;
+  gap: 0.75rem;
   height: clamp(360px, 60vh, 620px);
   overflow-y: auto;
 }
 
 .chat-message {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.75rem;
-  align-items: flex-start;
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-end;
 }
 
 .chat-message.own {
-  background: var(--paper-2);
-  border-radius: 14px;
-  padding: 0.6rem;
-  border: 1px solid var(--border-1);
+  flex-direction: row-reverse;
+  justify-content: flex-end;
 }
 
 .chat-message-body {
   display: grid;
   gap: 0.25rem;
+  background: #fff;
+  border: 1px solid rgba(11, 31, 59, 0.08);
+  border-radius: 16px;
+  padding: 0.6rem 0.8rem;
+  box-shadow: 0 10px 20px rgba(11, 31, 59, 0.08);
+  max-width: min(75%, 520px);
+}
+
+.chat-message.own .chat-message-body {
+  background: rgba(67, 186, 229, 0.16);
+  border-color: rgba(67, 186, 229, 0.35);
+  box-shadow: 0 10px 20px rgba(67, 186, 229, 0.12);
 }
 
 .chat-message-header {
@@ -1286,6 +1299,11 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.chat-message.own .chat-message-header {
+  justify-content: flex-end;
+  gap: 0.6rem;
 }
 
 .chat-message-name {
@@ -1297,15 +1315,33 @@ h2 {
   color: var(--ink-3);
 }
 
+.chat-message-body p {
+  margin: 0;
+  line-height: 1.4;
+  color: var(--ink-1);
+  word-break: break-word;
+}
+
 .chat-input {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.6rem;
   align-items: center;
+  background: var(--paper-1);
+  border: 1px solid rgba(11, 31, 59, 0.08);
+  border-radius: 999px;
+  padding: 0.45rem;
 }
 
 .chat-input input {
-  border-radius: 999px;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  padding: 0.5rem 0.7rem;
+}
+
+.chat-input button {
+  padding: 0.6rem 1.1rem;
 }
 
 .league-card {
