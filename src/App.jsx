@@ -919,6 +919,8 @@ function App() {
   const [selectMenuPosition, setSelectMenuPosition] = useState(null);
   const [backupMenuPosition, setBackupMenuPosition] = useState(null);
   const [menuScrollPadding, setMenuScrollPadding] = useState(0);
+  const [inlineActionsVisible, setInlineActionsVisible] = useState(false);
+  const [saveToastVisible, setSaveToastVisible] = useState(false);
   const [draftBackupPrefs, setDraftBackupPrefs] = useState({
     hohBackupPlayerId: "",
     blockBackupPlayerId: ""
@@ -963,11 +965,13 @@ function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const appShellRef = useRef(null);
+  const inlineActionRef = useRef(null);
   const selectMenuAnchorRef = useRef(null);
   const backupMenuAnchorRef = useRef(null);
   const profileInitRef = useRef(false);
   const publicProfileSyncRef = useRef(false);
   const chatThreadRef = useRef(null);
+  const saveToastTimeoutRef = useRef(null);
   const transferErrorTimeoutRef = useRef(null);
   const swipeStartRef = useRef(null);
   const leaderboardFilterRef = useRef(null);
@@ -2357,6 +2361,14 @@ function App() {
     }
   }, [isEditable]);
 
+  useEffect(() => {
+    return () => {
+      if (saveToastTimeoutRef.current) {
+        clearTimeout(saveToastTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const backupPenaltyCount = backupAppliedSlots.size;
   const displayedWeekMultiplier = useMemo(
     () =>
@@ -2725,13 +2737,14 @@ function App() {
     leaderboardFilterOpen;
   const portalRoot =
     typeof document === "undefined" ? null : document.body;
+  const showInlineActions = isEditable && hasPendingChanges;
+  const saveActionLabel = isDraftingWindow ? "Save team" : "Save transfers";
   const showFloatingSave =
     activeTab === "team" &&
-    isEditable &&
-    hasPendingChanges &&
-    !isModalOpen;
-  const floatingSaveLabel = isDraftingWindow ? "Save team" : "Save transfers";
-  const handleFloatingSave = () => {
+    showInlineActions &&
+    !isModalOpen &&
+    !inlineActionsVisible;
+  const handleSaveAction = () => {
     if (!canSaveTransfers) {
       return;
     }
@@ -3106,6 +3119,17 @@ function App() {
     });
   };
 
+  const triggerSaveToast = useCallback(() => {
+    if (saveToastTimeoutRef.current) {
+      clearTimeout(saveToastTimeoutRef.current);
+    }
+    setSaveToastVisible(true);
+    saveToastTimeoutRef.current = setTimeout(() => {
+      setSaveToastVisible(false);
+      saveToastTimeoutRef.current = null;
+    }, 400);
+  }, []);
+
   const handleOpenTransferConfirm = () => {
     if (!isEditable || !authUser || !nextWeek) {
       return;
@@ -3166,12 +3190,13 @@ function App() {
       });
       setTransferConfirmOpen(false);
       setTransferError("");
+      triggerSaveToast();
     } catch (error) {
       setAuthError("Unable to save your transfers. Please try again.");
     }
   };
 
-  const handlePreseasonSave = () => {
+  const handlePreseasonSave = async () => {
     if (
       !nextWeek ||
       !isTeamCompleteForSlots(draftNextTeam, rosterSlotsForNextWeek) ||
@@ -3216,23 +3241,28 @@ function App() {
       backupHistory: nextBackupHistory,
       ...nextBackupPrefs
     };
-    updateUserDoc(patch).catch(() => {
+    try {
+      await updateUserDoc(patch);
+      setUserTeams(nextTeams);
+      setUserProfile((prev) =>
+        prev
+          ? { ...prev, ...nextBackupPrefs, backupHistory: nextBackupHistory }
+          : prev
+      );
+      setDraftBackupPrefs(nextBackupPrefs);
+      setPreseasonLocked(false);
+      setDraftTeams((prev) => {
+        if (!prev[nextWeekIndex]) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[nextWeekIndex];
+        return next;
+      });
+      triggerSaveToast();
+    } catch (error) {
       setAuthError("Unable to save your team.");
-    });
-    setUserTeams(nextTeams);
-    setUserProfile((prev) =>
-      prev ? { ...prev, ...nextBackupPrefs, backupHistory: nextBackupHistory } : prev
-    );
-    setDraftBackupPrefs(nextBackupPrefs);
-    setPreseasonLocked(false);
-    setDraftTeams((prev) => {
-      if (!prev[nextWeekIndex]) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[nextWeekIndex];
-      return next;
-    });
+    }
   };
 
   const handleSaveProfile = async () => {
@@ -4606,6 +4636,37 @@ function App() {
     const rafId = requestAnimationFrame(adjustMenuSpacing);
     return () => cancelAnimationFrame(rafId);
   }, [activeTab, backupSelectOpen, openSelectSlotId, updateOpenMenuPositions]);
+
+  const updateInlineActionVisibility = useCallback(() => {
+    const row = inlineActionRef.current;
+    const tabBar = document.querySelector(".tab-bar");
+    if (!row || !tabBar) {
+      setInlineActionsVisible(false);
+      return;
+    }
+    const rowRect = row.getBoundingClientRect();
+    const tabRect = tabBar.getBoundingClientRect();
+    const threshold = tabRect.top - tabRect.height * 0.1;
+    const isVisible = rowRect.bottom > 0 && rowRect.top < window.innerHeight;
+    const isAboveTabs = rowRect.bottom <= threshold;
+    setInlineActionsVisible(isVisible && isAboveTabs);
+  }, []);
+
+  useEffect(() => {
+    if (!showInlineActions || activeTab !== "team") {
+      setInlineActionsVisible(false);
+      return;
+    }
+    const scrollNode = appShellRef.current;
+    const handleScroll = () => updateInlineActionVisibility();
+    handleScroll();
+    scrollNode?.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll);
+    return () => {
+      scrollNode?.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [activeTab, showInlineActions, updateInlineActionVisibility]);
 
   const getSelectedIdsForSlot = useCallback(
     (slotId) => {
@@ -6496,8 +6557,8 @@ function App() {
               );
             })}
 
-            {isEditable && !isDraftingWindow && (
-              <div className="transfer-actions">
+            {showInlineActions && (
+              <div className="transfer-actions team-save-actions" ref={inlineActionRef}>
                 <button
                   type="button"
                   className="ghost"
@@ -6508,29 +6569,13 @@ function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleOpenTransferConfirm}
+                  onClick={handleSaveAction}
                   disabled={!canSaveTransfers}
                 >
-                  Save transfers
+                  {saveActionLabel}
                 </button>
               </div>
             )}
-
-            {isEditable && isDraftingWindow && (
-              <div className="preseason-actions">
-                  <button
-                    type="button"
-                    onClick={handlePreseasonSave}
-                    disabled={
-                      !authUser ||
-                      !nextWeek ||
-                      !isTeamCompleteForSlots(draftNextTeam, rosterSlotsForNextWeek)
-                    }
-                  >
-                    Save team
-                  </button>
-                </div>
-              )}
           </section>
         )}
 
@@ -7201,11 +7246,17 @@ function App() {
         <button
           type="button"
           className="floating-save"
-          onClick={handleFloatingSave}
+          onClick={handleSaveAction}
           disabled={!canSaveTransfers}
         >
-          {floatingSaveLabel}
+          {saveActionLabel}
         </button>
+      )}
+
+      {saveToastVisible && (
+        <div className="save-toast" role="status" aria-live="polite">
+          Changes saved
+        </div>
       )}
 
       <nav

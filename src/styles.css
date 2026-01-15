@@ -2714,6 +2714,39 @@ input[type="file"] {
   background: rgba(67, 186, 229, 0.55);
 }
 
+.save-toast {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0.6rem 1.2rem;
+  border-radius: 999px;
+  background: rgba(11, 31, 59, 0.92);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  box-shadow: 0 12px 28px rgba(11, 31, 59, 0.25);
+  z-index: 42;
+  pointer-events: none;
+  animation: toast-fade 0.4s ease;
+}
+
+@keyframes toast-fade {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.98);
+  }
+  35% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
 @media (max-width: 900px) {
   .admin-grid {
     grid-template-columns: 1fr;
