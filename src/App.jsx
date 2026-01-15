@@ -73,6 +73,7 @@ const PROFILE_PROMPT_DELAY_MS = 300;
 const CHAT_MESSAGE_LIMIT = 120;
 const MAX_CHAT_LENGTH = 500;
 const BACKUP_PENALTY = 1;
+const FINALE_COMP_KEYS = ["comp1", "comp2", "comp3"];
 const PUBLIC_USER_FIELDS = [
   "displayName",
   "displayNameLower",
@@ -170,6 +171,9 @@ const getBackupSlotsByGroupForWeek = (weekIndex, top8WeekIndex, top4WeekIndex) =
 };
 
 const getPointsMultiplierForWeek = (weekIndex, top8WeekIndex, top4WeekIndex) => {
+  if (isFinaleWeekIndex(weekIndex, top4WeekIndex)) {
+    return 1;
+  }
   const phase = getRosterPhaseForWeek(weekIndex, top8WeekIndex, top4WeekIndex);
   if (phase === ROSTER_PHASES.top4) {
     return TOP4_POINTS_MULTIPLIER;
@@ -192,6 +196,50 @@ const applyBreakdownMultiplier = (entries, multiplier) =>
     ...entry,
     points: applyPointsMultiplier(entry.points, multiplier)
   }));
+
+const isFinaleWeekIndex = (weekIndex, top4WeekIndex) =>
+  Number.isFinite(top4WeekIndex) && weekIndex === top4WeekIndex + 1;
+
+const buildFinaleData = (finale = {}) => ({
+  comps: finale?.comps || {},
+  hohWinnerId: finale?.hohWinnerId || "",
+  winnerId: finale?.winnerId || "",
+  runnerUpId: finale?.runnerUpId || "",
+  evictedId: finale?.evictedId || ""
+});
+
+const getFinaleCompWins = (finale, playerId) => {
+  if (!playerId) {
+    return 0;
+  }
+  const playerComps = finale?.comps?.[playerId] || {};
+  return FINALE_COMP_KEYS.reduce(
+    (count, key) => (playerComps?.[key] ? count + 1 : count),
+    0
+  );
+};
+
+const getFinaleWeekPoints = (weekEvents, weekIndex, playerId) => {
+  if (!playerId) {
+    return 0;
+  }
+  const weekData = weekEvents[weekIndex] || {};
+  const finale = buildFinaleData(weekData.finale);
+  let points = getFinaleCompWins(finale, playerId) * 2;
+  if (finale.hohWinnerId === playerId) {
+    points += 5;
+  }
+  if (finale.winnerId === playerId) {
+    points += 7;
+  }
+  if (finale.runnerUpId === playerId) {
+    points += 3;
+  }
+  if (finale.evictedId === playerId) {
+    points -= 2;
+  }
+  return points;
+};
 
 const defaultPlayers = [
   {
@@ -716,19 +764,56 @@ const getPlayerWeekPoints = (weekEvents, weekIndex, playerId, group) => {
   return activeRounds.reduce((sum, round) => sum + scoreRound(round, group), 0);
 };
 
-const getWeekPointsForPlayer = (weekEvents, weekIndex, player, group) => {
+const getWeekPointsForPlayer = (
+  weekEvents,
+  weekIndex,
+  player,
+  group,
+  top4WeekIndex
+) => {
   if (!player) {
     return 0;
   }
   if (isPlayerInactiveForWeek(player, weekIndex)) {
     return 0;
   }
+  if (isFinaleWeekIndex(weekIndex, top4WeekIndex)) {
+    return getFinaleWeekPoints(weekEvents, weekIndex, player.id);
+  }
   return getPlayerWeekPoints(weekEvents, weekIndex, player.id, group);
 };
 
-const buildPlayerBreakdown = (weekEvents, weekIndex, playerId, group) => {
+const buildPlayerBreakdown = (
+  weekEvents,
+  weekIndex,
+  playerId,
+  group,
+  top4WeekIndex
+) => {
   if (!playerId) {
     return [];
+  }
+  if (isFinaleWeekIndex(weekIndex, top4WeekIndex)) {
+    const weekData = weekEvents[weekIndex] || {};
+    const finale = buildFinaleData(weekData.finale);
+    const entries = [];
+    const compWins = getFinaleCompWins(finale, playerId);
+    if (compWins) {
+      entries.push({ label: "Comp wins", points: compWins * 2 });
+    }
+    if (finale.hohWinnerId === playerId) {
+      entries.push({ label: "HOH win", points: 5 });
+    }
+    if (finale.evictedId === playerId) {
+      entries.push({ label: "Evicted", points: -2 });
+    }
+    if (finale.winnerId === playerId) {
+      entries.push({ label: "Winner", points: 7 });
+    }
+    if (finale.runnerUpId === playerId) {
+      entries.push({ label: "Runner up", points: 3 });
+    }
+    return entries;
   }
   const weekData = weekEvents[weekIndex];
   if (!weekData) {
@@ -1624,6 +1709,18 @@ function App() {
   const nextWeek = weeks[nextWeekIndex] || null;
   const maxViewIndex = nextWeek ? nextWeekIndex : currentWeekIndex ?? 0;
   const isPreseason = currentWeekIndex === null;
+  const selectionPlayers = useMemo(() => {
+    const next = [...players];
+    next.sort((a, b) => {
+      const aInactive = isPlayerInactiveForWeek(a, nextWeekIndex);
+      const bInactive = isPlayerInactiveForWeek(b, nextWeekIndex);
+      if (aInactive !== bInactive) {
+        return aInactive ? 1 : -1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+    return next;
+  }, [nextWeekIndex, players]);
   const rosterSlotsForCurrentWeek = useMemo(
     () => getRosterSlotsForWeek(currentWeekIndex, top8WeekIndex, top4WeekIndex),
     [currentWeekIndex, top4WeekIndex, top8WeekIndex]
@@ -2279,7 +2376,8 @@ function App() {
           weekEvents,
           displayedWeekIndex,
           player,
-          slot.group
+          slot.group,
+          top4WeekIndex
         )
       );
     }, 0);
@@ -2294,6 +2392,7 @@ function App() {
     displayedWeekIndex,
     playersById,
     rosterSlotsForDisplayedWeek,
+    top4WeekIndex,
     viewTeamWithBackups,
     weekEvents
   ]);
@@ -2319,7 +2418,13 @@ function App() {
         const player = playersById.get(playerId);
         return (
           sum +
-          getWeekPointsForPlayer(weekEvents, weekIndex, player, slot.group)
+          getWeekPointsForPlayer(
+            weekEvents,
+            weekIndex,
+            player,
+            slot.group,
+            top4WeekIndex
+          )
         );
       }, 0);
       const penaltyCount = getBackupAppliedSlots(
@@ -3828,6 +3933,66 @@ function App() {
     ) {
       nextTop4WeekIndex = nextTop8WeekIndex;
     }
+    const finaleWeekIndex =
+      Number.isFinite(nextTop4WeekIndex) ? nextTop4WeekIndex + 1 : null;
+    if (Number.isFinite(finaleWeekIndex) && finaleWeekIndex < weeks.length) {
+      const activeForFinale = playerIds.filter((playerId) => {
+        const evictedIndex = evictionMap.get(playerId);
+        return !Number.isFinite(evictedIndex) || evictedIndex >= finaleWeekIndex;
+      });
+      const finalePlayers = pickUniqueFromPool(
+        [...activeForFinale],
+        Math.min(3, activeForFinale.length)
+      );
+      if (finalePlayers.length) {
+        const finaleComps = {};
+        const setFinaleCompWinner = (playerId, compKey) => {
+          if (!playerId) {
+            return;
+          }
+          finaleComps[playerId] = {
+            ...(finaleComps[playerId] || {}),
+            [compKey]: true
+          };
+        };
+        const comp1Winner = pickRandom(finalePlayers);
+        const comp2Winner = pickRandom(finalePlayers);
+        const hohWinnerId = pickRandom(finalePlayers);
+        setFinaleCompWinner(comp1Winner, "comp1");
+        setFinaleCompWinner(comp2Winner, "comp2");
+        setFinaleCompWinner(hohWinnerId, "comp3");
+        const evictionCandidates = finalePlayers.filter(
+          (playerId) => playerId !== hohWinnerId
+        );
+        const evictedId = evictionCandidates.length
+          ? pickRandom(evictionCandidates)
+          : "";
+        const finalists = finalePlayers.filter((playerId) => playerId !== evictedId);
+        let winnerId = "";
+        let runnerUpId = "";
+        if (finalists.length >= 2) {
+          if (Math.random() < 0.5) {
+            winnerId = finalists[0];
+            runnerUpId = finalists[1];
+          } else {
+            winnerId = finalists[1];
+            runnerUpId = finalists[0];
+          }
+        }
+        nextWeekEvents[finaleWeekIndex] = {
+          ...(nextWeekEvents[finaleWeekIndex] || {}),
+          doubleEviction: false,
+          players: {},
+          finale: {
+            comps: finaleComps,
+            hohWinnerId: hohWinnerId || "",
+            winnerId,
+            runnerUpId,
+            evictedId
+          }
+        };
+      }
+    }
     setWeekEvents(nextWeekEvents);
     setTop8WeekIndex(nextTop8WeekIndex);
     setTop4WeekIndex(nextTop4WeekIndex);
@@ -4059,6 +4224,77 @@ function App() {
     }
     deleteDoc(doc(db, "avatars", avatarId)).catch(() => {
       setAuthError("Unable to remove avatar. Please try again.");
+    });
+  };
+
+  const handleFinaleCompChange = async (weekIndex, playerId, compKey, value) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
+      return;
+    }
+    setWeekEvents((prev) => {
+      const week = prev[weekIndex] ?? { doubleEviction: false, players: {} };
+      const finale = buildFinaleData(week.finale);
+      const nextComps = { ...finale.comps };
+      if (value) {
+        Object.keys(nextComps).forEach((entryId) => {
+          nextComps[entryId] = { ...nextComps[entryId], [compKey]: false };
+        });
+      }
+      const playerComps = { ...(nextComps[playerId] || {}) };
+      playerComps[compKey] = value;
+      nextComps[playerId] = playerComps;
+      const nextFinale = { ...finale, comps: nextComps };
+      const next = {
+        ...prev,
+        [weekIndex]: { ...week, finale: nextFinale }
+      };
+      updateSeasonDoc({ weekEvents: next }).catch(() => {
+        setAuthError("Unable to update finale events.");
+      });
+      return next;
+    });
+  };
+
+  const handleFinaleSelect = async (weekIndex, field, playerId) => {
+    const hasAdmin = await requireAdminSession();
+    if (!hasAdmin) {
+      return;
+    }
+    setWeekEvents((prev) => {
+      const week = prev[weekIndex] ?? { doubleEviction: false, players: {} };
+      const finale = buildFinaleData(week.finale);
+      const nextFinale = { ...finale, [field]: playerId };
+      if (playerId) {
+        if (field === "winnerId" && playerId === nextFinale.runnerUpId) {
+          nextFinale.runnerUpId = "";
+        }
+        if (field === "runnerUpId" && playerId === nextFinale.winnerId) {
+          nextFinale.winnerId = "";
+        }
+        if (field !== "evictedId" && playerId === nextFinale.evictedId) {
+          nextFinale.evictedId = "";
+        }
+        if (field === "evictedId") {
+          if (playerId === nextFinale.hohWinnerId) {
+            nextFinale.hohWinnerId = "";
+          }
+          if (playerId === nextFinale.winnerId) {
+            nextFinale.winnerId = "";
+          }
+          if (playerId === nextFinale.runnerUpId) {
+            nextFinale.runnerUpId = "";
+          }
+        }
+      }
+      const next = {
+        ...prev,
+        [weekIndex]: { ...week, finale: nextFinale }
+      };
+      updateSeasonDoc({ weekEvents: next }).catch(() => {
+        setAuthError("Unable to update finale events.");
+      });
+      return next;
     });
   };
 
@@ -4382,7 +4618,13 @@ function App() {
     );
     const slotPoints =
       applyPointsMultiplier(
-        getWeekPointsForPlayer(weekEvents, weekIndex, player, slot.group),
+        getWeekPointsForPlayer(
+          weekEvents,
+          weekIndex,
+          player,
+          slot.group,
+          top4WeekIndex
+        ),
         slotMultiplier
       ) - slotPenalty;
     const pointsClass =
@@ -4454,7 +4696,8 @@ function App() {
           weekEvents,
           displayedWeekIndex,
           player,
-          slot.group
+          slot.group,
+          top4WeekIndex
         ),
         displayedWeekMultiplier
       ) - slotPenalty;
@@ -5580,7 +5823,8 @@ function App() {
                               weekEvents,
                               leaderboardViewWeekIndex,
                               breakdownPlayer.id,
-                              group.title
+                              group.title,
+                              top4WeekIndex
                             )
                           : [];
                         const breakdownEntriesScaled = applyBreakdownMultiplier(
@@ -5602,7 +5846,8 @@ function App() {
                                 weekEvents,
                                 leaderboardViewWeekIndex,
                                 breakdownPlayer,
-                                group.title
+                                group.title,
+                                top4WeekIndex
                               ),
                               leaderboardViewWeekMultiplier
                             ) -
@@ -5816,7 +6061,8 @@ function App() {
                     weekEvents,
                     displayedWeekIndex,
                     breakdownPlayer.id,
-                    group.title
+                    group.title,
+                    top4WeekIndex
                   )
                 : [];
               const breakdownEntriesScaled = applyBreakdownMultiplier(
@@ -5835,7 +6081,8 @@ function App() {
                       weekEvents,
                       displayedWeekIndex,
                       breakdownPlayer,
-                      group.title
+                      group.title,
+                      top4WeekIndex
                     ),
                     displayedWeekMultiplier
                   ) - (breakdownPenaltyApplied ? BACKUP_PENALTY : 0)
@@ -6034,20 +6281,21 @@ function App() {
                           width: selectMenuPosition.width
                         }}
                       >
-                        {sortedPlayers.length === 0 && (
+                        {selectionPlayers.length === 0 && (
                           <p className="empty-note">No players available.</p>
                         )}
-                        {sortedPlayers.map((option) => {
+                        {selectionPlayers.map((option) => {
                           const disabled =
                             openSlotSelectedIds.has(option.id) ||
                             !isPlayerSelectableForWeek(option, nextWeekIndex);
+                          const isInactiveForWeek = isPlayerInactiveForWeek(option, nextWeekIndex);
                           return (
                             <button
                               type="button"
                               key={option.id}
                               className={`player-option ${
                                 disabled ? "disabled" : ""
-                              }`}
+                              } ${isInactiveForWeek ? "evicted" : ""}`}
                               onClick={() => {
                                 if (!openSlot) {
                                   return;
@@ -6097,20 +6345,21 @@ function App() {
                           <span className="avatar-small backup-open-slot">+</span>
                           <span>Open slot</span>
                         </button>
-                        {sortedPlayers.length === 0 && (
+                        {selectionPlayers.length === 0 && (
                           <p className="empty-note">No players available.</p>
                         )}
-                        {sortedPlayers.map((option) => {
+                        {selectionPlayers.map((option) => {
                           const disabled =
                             backupDisabledIds.has(option.id) ||
                             !isPlayerSelectableForWeek(option, nextWeekIndex);
+                          const isInactiveForWeek = isPlayerInactiveForWeek(option, nextWeekIndex);
                           return (
                             <button
                               type="button"
                               key={option.id}
                               className={`player-option ${
                                 disabled ? "disabled" : ""
-                              }`}
+                              } ${isInactiveForWeek ? "evicted" : ""}`}
                               onClick={() => {
                               handleBackupChange(group.id, option.id);
                               setBackupSelectOpen(null);
@@ -6494,6 +6743,20 @@ function App() {
                       players: {}
                     };
                     const isDouble = weekData.doubleEviction;
+                    const isFinaleWeek = isFinaleWeekIndex(index, top4WeekIndex);
+                    const finaleData = isFinaleWeek
+                      ? buildFinaleData(weekData.finale)
+                      : null;
+                    const finalePlayers = isFinaleWeek
+                      ? sortedPlayers.filter(
+                          (player) => !isPlayerInactiveForWeek(player, index)
+                        )
+                      : [];
+                    const finaleRoster = isFinaleWeek
+                      ? finalePlayers.length
+                        ? finalePlayers
+                        : sortedPlayers
+                      : [];
                     return (
                       <div className="week-panel" key={week.id}>
                         <div className="week-row">
@@ -6524,129 +6787,312 @@ function App() {
                         <details className="week-events">
                           <summary>Week {index + 1} events</summary>
                           <div className="week-events-body">
-                            <label className="toggle">
-                              <input
-                                type="checkbox"
-                                checked={isDouble}
-                                onChange={() => toggleDoubleEviction(index)}
-                              />
-                              Double eviction week
-                            </label>
-                            <p className="helper">
-                              Evicted automatically counts as touching the block.
-                            </p>
-                            {players.length === 0 ? (
-                              <p className="empty-note">
-                                Add players to start tracking events.
-                              </p>
-                            ) : (
-                              <div className="event-grid">
-                                {sortedPlayers.map((player) => {
-                                  const rounds = ensureTwoRounds(
-                                    weekData.players?.[player.id]?.rounds
-                                  );
-                                  const roundsToShow = isDouble
-                                    ? rounds
-                                    : rounds.slice(0, 1);
-                                  const isEvictedForWeek = isPlayerEvictedForWeek(
-                                    player,
-                                    index
-                                  );
-                                  const hohPoints = getWeekPointsForPlayer(
-                                    weekEvents,
-                                    index,
-                                    player,
-                                    "HOH Room"
-                                  );
-                                  const blockPoints = getWeekPointsForPlayer(
-                                    weekEvents,
-                                    index,
-                                    player,
-                                    "The Block"
-                                  );
-                                  return (
-                                    <div
-                                      className={`event-player ${
-                                        isEvictedForWeek ? "evicted" : ""
-                                      }`}
-                                      key={player.id}
+                            {isFinaleWeek ? (
+                              <>
+                                <div className="finale-controls">
+                                  <label>
+                                    HOH winner
+                                    <select
+                                      value={finaleData?.hohWinnerId || ""}
+                                      onChange={(event) =>
+                                        handleFinaleSelect(
+                                          index,
+                                          "hohWinnerId",
+                                          event.target.value
+                                        )
+                                      }
                                     >
-                                      <div className="event-player-header">
-                                        <div className="avatar-small">
-                                          {player.photo ? (
-                                            <img
-                                              src={player.photo}
-                                              alt={player.name}
-                                            />
-                                          ) : (
-                                            <span>{getInitials(player.name)}</span>
-                                          )}
-                                        </div>
-                                        <div>
-                                          <p className="player-name">
-                                            {player.name}
-                                          </p>
-                                          <p className="player-status">
-                                            HOH: {hohPoints} · Block: {blockPoints}
-                                          </p>
-                                        </div>
-                                      </div>
-                                      <div
-                                        className={`event-rounds ${
-                                          isDouble ? "double" : ""
-                                        }`}
-                                      >
-                                        {roundsToShow.map((round, roundIndex) => (
-                                          <div
-                                            className="event-round"
-                                            key={`${player.id}-${roundIndex}`}
-                                          >
-                                            {isDouble && (
-                                              <p className="event-round-title">
-                                                Round {roundIndex + 1}
+                                      <option value="">None</option>
+                                      {finaleRoster.map((player) => (
+                                        <option key={player.id} value={player.id}>
+                                          {player.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label>
+                                    Winner
+                                    <select
+                                      value={finaleData?.winnerId || ""}
+                                      onChange={(event) =>
+                                        handleFinaleSelect(
+                                          index,
+                                          "winnerId",
+                                          event.target.value
+                                        )
+                                      }
+                                    >
+                                      <option value="">None</option>
+                                      {finaleRoster.map((player) => (
+                                        <option key={player.id} value={player.id}>
+                                          {player.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label>
+                                    Runner up
+                                    <select
+                                      value={finaleData?.runnerUpId || ""}
+                                      onChange={(event) =>
+                                        handleFinaleSelect(
+                                          index,
+                                          "runnerUpId",
+                                          event.target.value
+                                        )
+                                      }
+                                    >
+                                      <option value="">None</option>
+                                      {finaleRoster.map((player) => (
+                                        <option key={player.id} value={player.id}>
+                                          {player.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label>
+                                    Evicted
+                                    <select
+                                      value={finaleData?.evictedId || ""}
+                                      onChange={(event) =>
+                                        handleFinaleSelect(
+                                          index,
+                                          "evictedId",
+                                          event.target.value
+                                        )
+                                      }
+                                    >
+                                      <option value="">None</option>
+                                      {finaleRoster.map((player) => (
+                                        <option key={player.id} value={player.id}>
+                                          {player.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                </div>
+                                <p className="helper">
+                                  Finale scoring: +2 per comp win, +5 HOH win, -2
+                                  evicted, +7 winner, +3 runner up.
+                                </p>
+                                {players.length === 0 ? (
+                                  <p className="empty-note">
+                                    Add players to start tracking events.
+                                  </p>
+                                ) : (
+                                  <div className="event-grid finale-grid">
+                                    {finaleRoster.map((player) => {
+                                      const isEvictedForWeek =
+                                        isPlayerEvictedForWeek(player, index);
+                                      const playerComps =
+                                        finaleData?.comps?.[player.id] || {};
+                                      const finalePoints = getFinaleWeekPoints(
+                                        weekEvents,
+                                        index,
+                                        player.id
+                                      );
+                                      return (
+                                        <div
+                                          className={`event-player ${
+                                            isEvictedForWeek ? "evicted" : ""
+                                          }`}
+                                          key={player.id}
+                                        >
+                                          <div className="event-player-header">
+                                            <div className="avatar-small">
+                                              {player.photo ? (
+                                                <img
+                                                  src={player.photo}
+                                                  alt={player.name}
+                                                />
+                                              ) : (
+                                                <span>
+                                                  {getInitials(player.name)}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div>
+                                              <p className="player-name">
+                                                {player.name}
                                               </p>
-                                            )}
-                                            <div className="event-checks">
-                                              {eventOptions.map((option) => {
-                                                const isTouched =
-                                                  option.id === "touchedBlock";
-                                                const checked = isTouched
-                                                  ? round.touchedBlock ||
-                                                    round.evicted
-                                                  : round[option.id];
-                                                const disabled =
-                                                  isTouched && round.evicted;
-                                                return (
-                                                  <label
-                                                    className="event-check"
-                                                    key={`${player.id}-${option.id}-${roundIndex}`}
-                                                  >
-                                                    <input
-                                                      type="checkbox"
-                                                      checked={checked}
-                                                      disabled={disabled}
-                                                      onChange={(event) =>
-                                                        handleEventChange(
-                                                          index,
-                                                          player.id,
-                                                          roundIndex,
-                                                          option.id,
-                                                          event.target.checked
-                                                        )
-                                                      }
-                                                    />
-                                                    <span>{option.label}</span>
-                                                  </label>
-                                                );
-                                              })}
+                                              <p className="player-status">
+                                                Finale: {finalePoints} pts
+                                              </p>
                                             </div>
                                           </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                                          <div className="finale-comp-grid">
+                                            {FINALE_COMP_KEYS.map(
+                                              (compKey, compIndex) => (
+                                                <label
+                                                  className="event-check"
+                                                  key={`${player.id}-${compKey}`}
+                                                >
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={Boolean(
+                                                      playerComps?.[compKey]
+                                                    )}
+                                                    onChange={(event) =>
+                                                      handleFinaleCompChange(
+                                                        index,
+                                                        player.id,
+                                                        compKey,
+                                                        event.target.checked
+                                                      )
+                                                    }
+                                                  />
+                                                  <span>
+                                                    Comp {compIndex + 1}
+                                                  </span>
+                                                </label>
+                                              )
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <label className="toggle">
+                                  <input
+                                    type="checkbox"
+                                    checked={isDouble}
+                                    onChange={() => toggleDoubleEviction(index)}
+                                  />
+                                  Double eviction week
+                                </label>
+                                <p className="helper">
+                                  Evicted automatically counts as touching the block.
+                                </p>
+                                {players.length === 0 ? (
+                                  <p className="empty-note">
+                                    Add players to start tracking events.
+                                  </p>
+                                ) : (
+                                  <div className="event-grid">
+                                    {sortedPlayers.map((player) => {
+                                      const rounds = ensureTwoRounds(
+                                        weekData.players?.[player.id]?.rounds
+                                      );
+                                      const roundsToShow = isDouble
+                                        ? rounds
+                                        : rounds.slice(0, 1);
+                                      const isEvictedForWeek =
+                                        isPlayerEvictedForWeek(player, index);
+                                      const hohPoints = getWeekPointsForPlayer(
+                                        weekEvents,
+                                        index,
+                                        player,
+                                        "HOH Room",
+                                        top4WeekIndex
+                                      );
+                                      const blockPoints = getWeekPointsForPlayer(
+                                        weekEvents,
+                                        index,
+                                        player,
+                                        "The Block",
+                                        top4WeekIndex
+                                      );
+                                      return (
+                                        <div
+                                          className={`event-player ${
+                                            isEvictedForWeek ? "evicted" : ""
+                                          }`}
+                                          key={player.id}
+                                        >
+                                          <div className="event-player-header">
+                                            <div className="avatar-small">
+                                              {player.photo ? (
+                                                <img
+                                                  src={player.photo}
+                                                  alt={player.name}
+                                                />
+                                              ) : (
+                                                <span>
+                                                  {getInitials(player.name)}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div>
+                                              <p className="player-name">
+                                                {player.name}
+                                              </p>
+                                              <p className="player-status">
+                                                HOH: {hohPoints} / Block:{" "}
+                                                {blockPoints}
+                                              </p>
+                                            </div>
+                                          </div>
+                                          <div
+                                            className={`event-rounds ${
+                                              isDouble ? "double" : ""
+                                            }`}
+                                          >
+                                            {roundsToShow.map(
+                                              (round, roundIndex) => (
+                                                <div
+                                                  className="event-round"
+                                                  key={`${player.id}-${roundIndex}`}
+                                                >
+                                                  {isDouble && (
+                                                    <p className="event-round-title">
+                                                      Round {roundIndex + 1}
+                                                    </p>
+                                                  )}
+                                                  <div className="event-checks">
+                                                    {eventOptions.map(
+                                                      (option) => {
+                                                        const isTouched =
+                                                          option.id ===
+                                                          "touchedBlock";
+                                                        const checked = isTouched
+                                                          ? round.touchedBlock ||
+                                                            round.evicted
+                                                          : round[option.id];
+                                                        const disabled =
+                                                          isTouched &&
+                                                          round.evicted;
+                                                        return (
+                                                          <label
+                                                            className="event-check"
+                                                            key={`${player.id}-${option.id}-${roundIndex}`}
+                                                          >
+                                                            <input
+                                                              type="checkbox"
+                                                              checked={checked}
+                                                              disabled={disabled}
+                                                              onChange={(event) =>
+                                                                handleEventChange(
+                                                                  index,
+                                                                  player.id,
+                                                                  roundIndex,
+                                                                  option.id,
+                                                                  event.target
+                                                                    .checked
+                                                                )
+                                                              }
+                                                            />
+                                                            <span>
+                                                              {option.label}
+                                                            </span>
+                                                          </label>
+                                                        );
+                                                      }
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              )
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                         </details>
