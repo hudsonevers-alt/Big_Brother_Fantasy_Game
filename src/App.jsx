@@ -6263,6 +6263,9 @@ function App() {
                   ? activeBlockBackupId
                   : activeBackupPrefs.hohBackupPlayerId;
               const backupPlayer = backupId ? playersById.get(backupId) : null;
+              const backupIsEvictedForWeek = backupPlayer
+                ? isPlayerInactiveForWeek(backupPlayer, displayedWeekIndex)
+                : false;
               const backupMenuOpen = backupSelectOpen === group.id;
               const backupStarterIds = isEditable
                 ? new Set(
@@ -6350,7 +6353,20 @@ function App() {
                             inactive.
                           </p>
                         </div>
-                        <article className="slot-card backup-slot-card">
+                        <article
+                          className={`slot-card backup-slot-card ${
+                            backupIsEvictedForWeek ? "evicted" : ""
+                          }`}
+                        >
+                          {backupIsEvictedForWeek && (
+                            <span
+                              className="evicted-badge"
+                              title="Player evicted, won't score future points"
+                              aria-label="Evicted"
+                            >
+                              !
+                            </span>
+                          )}
                           <div className="slot-avatar">
                             {backupPlayer?.photo ? (
                               <img
